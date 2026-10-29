@@ -12,7 +12,7 @@ export class App {
   @Column({ length: 50, unique: true }) code!: string;
   @Column({ length: 20 }) version!: string;
   @Column({ type: 'text', nullable: true }) description!: string | null;
-  @Column({ length: 255, nullable: true }) icon!: string | null;
+  @Column({ type: 'varchar', length: 255, nullable: true }) icon!: string | null;
   @Column({ default: 'published', length: 20 }) status!: string;
   @Column({ type: 'jsonb' }) manifest!: Record<string, unknown>;
   @Column({ name: 'is_system', default: false }) isSystem!: boolean;

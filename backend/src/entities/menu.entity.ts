@@ -10,8 +10,8 @@ export class Menu {
   @JoinColumn({ name: 'app_id' }) app!: App;
   @Column({ length: 50 }) name!: string;
   @Column({ length: 255 }) path!: string;
-  @Column({ length: 255, nullable: true }) component!: string | null;
-  @Column({ length: 50, nullable: true }) icon!: string | null;
+  @Column({ type: 'varchar', length: 255, nullable: true }) component!: string | null;
+  @Column({ type: 'varchar', length: 50, nullable: true }) icon!: string | null;
   @Column({ default: 0 }) sort!: number;
-  @Column({ name: 'parent_id', nullable: true }) parentId!: number | null;
+  @Column({ name: 'parent_id', type: 'integer', nullable: true }) parentId!: number | null;
 }

@@ -9,8 +9,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "3000:3000"
   frontend:
     build: ./frontend
     depends_on: [backend]

@@ -13,7 +13,7 @@ export class User {
   @Column({ length: 255 })
   password!: string;
 
-  @Column({ length: 100, nullable: true })
+  @Column({ type: 'varchar', length: 100, nullable: true })
   email!: string | null;
 
   @Column({ default: 'active', length: 20 })
