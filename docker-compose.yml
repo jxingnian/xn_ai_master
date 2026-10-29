@@ -1,0 +1,32 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://xn_platform:${DB_PASSWORD:-xn_platform}@postgres:5432/xn_platform
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+  frontend:
+    build: ./frontend
+    depends_on: [backend]
+    ports:
+      - "80:80"
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: xn_platform
+      POSTGRES_USER: xn_platform
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-xn_platform}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xn_platform -d xn_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes: [postgres_data:/var/lib/postgresql/data]
+volumes:
+  postgres_data:

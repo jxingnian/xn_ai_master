@@ -1,0 +1,19 @@
+import { Injectable } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+/** 菜单只返回系统默认菜单和已启用应用菜单，保证停用/卸载后自动隐藏。 */
+@Injectable()
+export class MenuService {
+  constructor(private readonly dataSource: DataSource) {}
+  async getMenus() {
+    const rows = await this.dataSource.query(`SELECT m.id, m.name, m.path, m.component, m.icon, m.sort, a.code AS app_code
+      FROM menus m INNER JOIN installed_apps i ON i.app_id = m.app_id AND i.status = 'enabled'
+      INNER JOIN apps a ON a.id = m.app_id ORDER BY m.sort ASC, m.id ASC`);
+    return [
+      { name: '设置', path: '/settings', component: 'Settings', icon: 'Setting', sort: 1 },
+      { name: '应用商店', path: '/store', component: 'Store', icon: 'Shop', sort: 2 },
+      { name: 'AI', path: '/ai', component: 'Ai', icon: 'MagicStick', sort: 3 },
+      ...rows,
+    ];
+  }
+}
