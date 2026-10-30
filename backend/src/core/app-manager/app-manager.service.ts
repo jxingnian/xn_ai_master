@@ -17,10 +17,16 @@ export class AppManagerService implements OnModuleInit {
     @Inject(forwardRef(() => AuditLogService)) private readonly auditLog: AuditLogService,
   ) {}
 
-  /** 首次启动写入一个可安装的设备管理示例，便于验证应用商店闭环。 */
+  /** 首次启动写入基础应用清单；使用按 code 检查，保证已有数据库升级后也能出现 MQTT 应用。 */
   async onModuleInit(): Promise<void> {
-    if (await this.apps.count() > 0) return;
-    await this.apps.save(this.apps.create({ name: '设备管理', code: 'device-manager', version: '1.0.0', description: '提供设备CRUD及状态监控功能', status: 'published', isSystem: false, manifest: { permissions: ['device:read', 'device:write'], menus: [{ name: '设备管理', path: '/devices', component: 'DeviceList', icon: 'Monitor', sort: 10 }] } }));
+    const definitions = [
+      { name: '设备管理', code: 'device-manager', version: '1.0.0', description: '提供设备CRUD及状态监控功能', manifest: { permissions: ['device:read', 'device:write'], menus: [{ name: '设备管理', path: '/devices', component: 'DeviceList', icon: 'Monitor', sort: 10 }] } },
+      { name: 'MQTT 管理', code: 'mqtt', version: '1.0.0', description: '统一管理多个 MQTT 服务器连接、订阅和消息发布', manifest: { permissions: ['mqtt:config:read', 'mqtt:config:write', 'mqtt:subscription:read', 'mqtt:subscription:write', 'mqtt:message:publish', 'mqtt:message:read', 'mqtt:status:read'], menus: [{ name: 'MQTT 管理', path: '/mqtt', component: 'MqttLayout', icon: 'Connection', sort: 20 }] } },
+    ];
+    for (const definition of definitions) {
+      const exists = await this.apps.findOne({ where: { code: definition.code } });
+      if (!exists) await this.apps.save(this.apps.create({ ...definition, status: 'published', isSystem: false }));
+    }
   }
 
   /** 商店只返回尚未安装的已发布应用，避免前端继续展示必然失败的重复安装按钮。 */
