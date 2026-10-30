@@ -1,0 +1,69 @@
+# 临时文件
+tmp/
+*.tmp
+*.temp
+*.log
+
+# SSH配置文件（敏感信息）
+*ssh_config.json
+*ssh_*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 打包文件
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 密钥和证书
+*.pem
+*.key
+*.crt
+*.p12
+id_rsa
+id_rsa.pub
+
+# 备份文件
+*.bak
+*.backup
+*~
