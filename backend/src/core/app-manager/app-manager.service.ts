@@ -23,7 +23,16 @@ export class AppManagerService implements OnModuleInit {
     await this.apps.save(this.apps.create({ name: '设备管理', code: 'device-manager', version: '1.0.0', description: '提供设备CRUD及状态监控功能', status: 'published', isSystem: false, manifest: { permissions: ['device:read', 'device:write'], menus: [{ name: '设备管理', path: '/devices', component: 'DeviceList', icon: 'Monitor', sort: 10 }] } }));
   }
 
-  async listStore() { return this.apps.find({ where: { status: 'published' }, order: { name: 'ASC' } }); }
+  /** 商店只返回尚未安装的已发布应用，避免前端继续展示必然失败的重复安装按钮。 */
+  async listStore() {
+    return this.apps
+      .createQueryBuilder('app')
+      .leftJoin('installed_apps', 'installed', 'installed.app_id = app.id')
+      .where('app.status = :status', { status: 'published' })
+      .andWhere('installed.id IS NULL')
+      .orderBy('app.name', 'ASC')
+      .getMany();
+  }
   async listInstalled() { return this.installed.find({ relations: ['app'], order: { installedAt: 'DESC' } }); }
 
   async install(appId: number, userId?: number) {

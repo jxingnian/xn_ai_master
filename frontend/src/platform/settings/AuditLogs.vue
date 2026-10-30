@@ -79,7 +79,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
-import axios from 'axios';
+import http from '../../api/http';
 
 const logs = ref<any[]>([]);
 const loading = ref(false);
@@ -111,7 +111,7 @@ const loadLogs = async () => {
       params.endDate = filters.dateRange[1];
     }
 
-    const { data } = await axios.get('/api/settings/audit-logs', { params });
+    const { data } = await http.get('/settings/audit-logs', { params });
     logs.value = data.items;
     pagination.total = data.total;
   } catch (error: any) {

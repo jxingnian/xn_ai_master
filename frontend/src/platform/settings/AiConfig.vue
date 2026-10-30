@@ -122,7 +122,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { Refresh as RefreshIcon } from '@element-plus/icons-vue';
-import axios from 'axios';
+import http from '../../api/http';
 
 const formRef = ref<FormInstance>();
 const saveLoading = ref(false);
@@ -163,7 +163,7 @@ const logPagination = reactive({
 
 const loadConfig = async () => {
   try {
-    const { data } = await axios.get('/api/settings/ai');
+    const { data } = await http.get('/settings/ai');
     Object.assign(configForm, data);
   } catch (error: any) {
     if (error.response?.status !== 404) {
@@ -180,7 +180,7 @@ const saveConfig = async () => {
 
     saveLoading.value = true;
     try {
-      await axios.put('/api/settings/ai', configForm);
+      await http.put('/settings/ai', configForm);
       ElMessage.success('保存成功');
       await loadConfig();
       await loadUsage();
@@ -195,7 +195,7 @@ const saveConfig = async () => {
 const testConnection = async () => {
   testLoading.value = true;
   try {
-    const { data } = await axios.post('/api/settings/ai/test');
+    const { data } = await http.post('/settings/ai/test');
     if (data.success) {
       ElMessage.success(`连接成功，响应时间: ${data.responseTime}ms`);
     } else {
@@ -211,7 +211,7 @@ const testConnection = async () => {
 
 const loadUsage = async () => {
   try {
-    const { data } = await axios.get('/api/settings/ai/usage');
+    const { data } = await http.get('/settings/ai/usage');
     Object.assign(usage, data);
   } catch (error: any) {
     console.error('加载使用统计失败', error);
@@ -221,7 +221,7 @@ const loadUsage = async () => {
 const loadLogs = async () => {
   logsLoading.value = true;
   try {
-    const { data } = await axios.get('/api/settings/ai/logs', {
+    const { data } = await http.get('/settings/ai/logs', {
       params: {
         page: logPagination.page,
         limit: logPagination.limit,

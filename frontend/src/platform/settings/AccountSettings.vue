@@ -51,7 +51,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { useRouter } from 'vue-router';
-import axios from 'axios';
+import http from '../../api/http';
 
 const router = useRouter();
 
@@ -97,7 +97,7 @@ const passwordRules: FormRules = {
 
 const loadProfile = async () => {
   try {
-    const { data } = await axios.get('/api/auth/profile');
+    const { data } = await http.get('/auth/profile');
     profile.username = data.username;
     profile.email = data.email || '';
     profileForm.email = data.email || '';
@@ -109,7 +109,7 @@ const loadProfile = async () => {
 const updateProfile = async () => {
   profileLoading.value = true;
   try {
-    await axios.patch('/api/auth/profile', { email: profileForm.email });
+    await http.patch('/auth/profile', { email: profileForm.email });
     ElMessage.success('保存成功');
     await loadProfile();
   } catch (error: any) {
@@ -127,7 +127,7 @@ const changePassword = async () => {
 
     passwordLoading.value = true;
     try {
-      await axios.post('/api/auth/password', {
+      await http.post('/auth/password', {
         currentPassword: passwordForm.currentPassword,
         newPassword: passwordForm.newPassword,
       });
@@ -146,8 +146,8 @@ const changePassword = async () => {
 
 const logout = async () => {
   try {
-    await axios.post('/api/auth/logout');
-    localStorage.removeItem('token');
+    await http.post('/auth/logout');
+    localStorage.removeItem('access_token');
     ElMessage.success('已退出登录');
     router.push('/login');
   } catch (error: any) {

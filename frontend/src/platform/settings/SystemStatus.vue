@@ -145,7 +145,7 @@
 import { ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Refresh as RefreshIcon } from '@element-plus/icons-vue';
-import axios from 'axios';
+import http from '../../api/http';
 
 const status = ref<any>({});
 const loading = ref(false);
@@ -155,7 +155,7 @@ const loadStatus = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const { data } = await axios.get('/api/settings/system/status');
+    const { data } = await http.get('/settings/system/status');
     status.value = data;
   } catch (err: any) {
     error.value = err.response?.data?.message || '加载系统状态失败';
