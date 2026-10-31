@@ -7,6 +7,10 @@ import { DeviceStatusEvent } from './entities/device-status-event.entity';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { QueryDeviceDto } from './dto/query-device.dto';
+import { InstalledApp } from '../../entities/installed-app.entity';
+import { MqttConnection } from '../mqtt/entities/mqtt-connection.entity';
+import { MqttSubscription } from '../mqtt/entities/mqtt-subscription.entity';
+import { MqttService } from '../mqtt/mqtt.service';
 
 /**
  * 凤飞飞设备主服务。
@@ -24,7 +28,66 @@ export class FeifeiDeviceService {
     private readonly bindings: Repository<DeviceUserBinding>,
     @InjectRepository(DeviceStatusEvent)
     private readonly statusEvents: Repository<DeviceStatusEvent>,
+    @InjectRepository(InstalledApp)
+    private readonly installedApps: Repository<InstalledApp>,
+    @InjectRepository(MqttConnection)
+    private readonly mqttConnections: Repository<MqttConnection>,
+    @InjectRepository(MqttSubscription)
+    private readonly mqttSubscriptions: Repository<MqttSubscription>,
+    private readonly mqttService: MqttService,
   ) {}
+
+  /** 获取凤飞飞应用保存的 MQTT 配置及当前连接状态。 */
+  async getMqttConfig(): Promise<Record<string, unknown>> {
+    const installed = await this.getInstalledApp();
+    const config = installed.config || {};
+    const connectionId = Number(config.mqttConnectionId || 0);
+    const connection = connectionId > 0 ? await this.mqttConnections.findOne({ where: { id: connectionId } }) : null;
+    const status = connection ? (await this.mqttService.status()).find((item) => item.connectionCode === connection.connectionCode) : null;
+    return {
+      mqttConnectionId: connection?.id || null,
+      mqttConnectionCode: connection?.connectionCode || null,
+      deviceTopic: String(config.deviceTopic || 'xn/xn_device/#'),
+      commandTopic: String(config.commandTopic || 'xn/xn_device/{deviceId}/command'),
+      enabled: config.enabled !== false,
+      connectionStatus: status?.connected === true ? 'connected' : 'disconnected',
+      connectionName: connection?.name || null,
+    };
+  }
+
+  /** 保存凤飞飞 MQTT 配置，并自动维护设备消息订阅。 */
+  async updateMqttConfig(input: { mqttConnectionId: number; deviceTopic?: string; commandTopic?: string; enabled?: boolean }): Promise<Record<string, unknown>> {
+    const installed = await this.getInstalledApp();
+    const connection = await this.mqttConnections.findOne({ where: { id: input.mqttConnectionId } });
+    if (!connection) throw new BadRequestException('选择的 MQTT 连接不存在');
+    if (connection.status !== 'enabled') throw new BadRequestException('选择的 MQTT 连接未启用');
+    const deviceTopic = input.deviceTopic?.trim() || 'xn/xn_device/#';
+    const commandTopic = input.commandTopic?.trim() || 'xn/xn_device/{deviceId}/command';
+    if (!deviceTopic.includes('#') && !deviceTopic.includes('+')) throw new BadRequestException('设备订阅主题必须包含 MQTT 通配符');
+
+    const oldSubscriptions = await this.mqttSubscriptions.find({ where: { subscriptionCode: 'feifei-device-subscription' } });
+    for (const subscription of oldSubscriptions) {
+      subscription.status = 'disabled';
+      await this.mqttSubscriptions.save(subscription);
+    }
+    let subscription = await this.mqttSubscriptions.findOne({ where: { connectionId: connection.id, topicFilter: deviceTopic } });
+    if (!subscription) {
+      subscription = this.mqttSubscriptions.create({ connectionId: connection.id, subscriptionCode: 'feifei-device-subscription', name: '凤飞飞设备消息', topicFilter: deviceTopic, qos: 1, status: input.enabled === false ? 'disabled' : 'enabled', consumerCode: 'device-manager' });
+    } else {
+      Object.assign(subscription, { subscriptionCode: 'feifei-device-subscription', name: '凤飞飞设备消息', qos: 1, status: input.enabled === false ? 'disabled' : 'enabled', consumerCode: 'device-manager' });
+    }
+    await this.mqttSubscriptions.save(subscription);
+    installed.config = { ...(installed.config || {}), mqttConnectionId: connection.id, mqttConnectionCode: connection.connectionCode, deviceTopic, commandTopic, enabled: input.enabled !== false };
+    await this.installedApps.save(installed);
+    await this.mqttService.reconnect(connection.connectionCode);
+    return this.getMqttConfig();
+  }
+
+  private async getInstalledApp(): Promise<InstalledApp> {
+    const app = await this.installedApps.findOne({ where: { app: { code: 'feifei-device' } }, relations: ['app'] });
+    if (!app || app.status !== 'enabled') throw new BadRequestException('凤飞飞应用尚未安装或未启用');
+    return app;
+  }
 
   /**
    * 查询设备列表。

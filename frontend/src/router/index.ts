@@ -23,6 +23,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
       { path: 'list', component: () => import('../apps/feifei-device/FeifeiDeviceList.vue') },
       { path: 'pairing', component: () => import('../apps/feifei-device/FeifeiDevicePairingRecords.vue') },
       { path: 'docs', component: () => import('../apps/feifei-device/FeifeiDeviceDocs.vue') },
+      { path: 'mqtt-config', component: () => import('../apps/feifei-device/FeifeiDeviceMqttConfig.vue') },
     ] },
   ] },
 ] });

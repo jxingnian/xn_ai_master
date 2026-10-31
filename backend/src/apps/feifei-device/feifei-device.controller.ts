@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   Body,
   Param,
@@ -12,6 +13,7 @@ import {
   ParseIntPipe,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtGuard } from '../../core/auth/jwt.guard';
 import { PermissionGuard } from '../../core/permission/permission.guard';
@@ -44,6 +46,24 @@ export class FeifeiDeviceController {
     private readonly pairingService: FeifeiDevicePairingService,
     private readonly mqttService: MqttService,
   ) {}
+
+  /** 返回 MQTT 应用中已有的连接，供凤飞飞应用配置页面选择。 */
+  @Get('mqtt-config/connections')
+  async listMqttConnections(): Promise<Array<Record<string, unknown>>> {
+    return await this.mqttService.status();
+  }
+
+  /** 返回凤飞飞应用当前使用的 MQTT 连接配置。 */
+  @Get('mqtt-config')
+  async getMqttConfig(): Promise<Record<string, unknown>> {
+    return await this.deviceService.getMqttConfig();
+  }
+
+  /** 保存凤飞飞应用的 MQTT 连接配置并自动重建设备订阅。 */
+  @Put('mqtt-config')
+  async updateMqttConfig(@Body() body: { mqttConnectionId: number; deviceTopic?: string; commandTopic?: string; enabled?: boolean }): Promise<Record<string, unknown>> {
+    return await this.deviceService.updateMqttConfig(body);
+  }
 
   /**
    * 获取设备总览统计。
@@ -255,9 +275,13 @@ export class FeifeiDeviceController {
     };
 
     // 发布到 MQTT
-    const topic = `xn/xn_device/${deviceId}/command`;
+    const config = await this.deviceService.getMqttConfig();
+    if (config.enabled !== true || !config.mqttConnectionCode) {
+      throw new BadRequestException('请先在凤飞飞应用的 MQTT 配置中选择并启用连接');
+    }
+    const topic = String(config.commandTopic || 'xn/xn_device/{deviceId}/command').replace('{deviceId}', deviceId);
     await this.mqttService.publish({
-      connectionCode: 'emqx-main',
+      connectionCode: String(config.mqttConnectionCode),
       topic,
       payload: commandMessage,
       qos: 1,

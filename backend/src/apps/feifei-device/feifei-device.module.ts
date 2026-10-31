@@ -13,6 +13,9 @@ import { FeifeiDeviceMqttConsumer } from './feifei-device-mqtt.consumer';
 import { MqttModule } from '../mqtt/mqtt.module';
 import { JwtGuard } from '../../core/auth/jwt.guard';
 import { PermissionGuard } from '../../core/permission/permission.guard';
+import { InstalledApp } from '../../entities/installed-app.entity';
+import { MqttConnection } from '../mqtt/entities/mqtt-connection.entity';
+import { MqttSubscription } from '../mqtt/entities/mqtt-subscription.entity';
 
 /**
  * 凤飞飞设备应用模块。
@@ -27,6 +30,9 @@ import { PermissionGuard } from '../../core/permission/permission.guard';
       DeviceUserBinding,
       DevicePairingCode,
       DeviceStatusEvent,
+      InstalledApp,
+      MqttConnection,
+      MqttSubscription,
     ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'change-this-secret-in-production',
