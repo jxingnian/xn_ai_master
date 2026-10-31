@@ -17,6 +17,13 @@ const router = createRouter({ history: createWebHistory(), routes: [
       { path: 'status', component: () => import('../apps/mqtt/MqttStatus.vue') },
       { path: 'docs', component: () => import('../apps/mqtt/MqttDocs.vue') },
     ] },
+    { path: 'feifei-device', component: () => import('../apps/feifei-device/FeifeiDeviceLayout.vue'), children: [
+      { path: '', redirect: '/feifei-device/overview' },
+      { path: 'overview', component: () => import('../apps/feifei-device/FeifeiDeviceOverview.vue') },
+      { path: 'list', component: () => import('../apps/feifei-device/FeifeiDeviceList.vue') },
+      { path: 'pairing', component: () => import('../apps/feifei-device/FeifeiDevicePairingRecords.vue') },
+      { path: 'docs', component: () => import('../apps/feifei-device/FeifeiDeviceDocs.vue') },
+    ] },
   ] },
 ] });
 
