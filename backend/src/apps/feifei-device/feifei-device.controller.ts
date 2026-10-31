@@ -34,7 +34,8 @@ import { DeviceStatusEvent } from './entities/device-status-event.entity';
  * 提供设备管理、配对绑定、状态查询和指令发送等 REST API。
  * 所有接口需要 JWT 认证，部分接口需要特定权限。
  */
-@Controller('api/feifei-devices')
+// main.ts 已统一设置 api 全局前缀，这里只声明业务路径，最终地址为 /api/feifei-devices。
+@Controller('feifei-devices')
 @UseGuards(JwtGuard)
 export class FeifeiDeviceController {
   constructor(

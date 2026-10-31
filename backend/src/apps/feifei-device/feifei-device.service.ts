@@ -43,8 +43,9 @@ export class FeifeiDeviceService {
     const queryBuilder = this.devices.createQueryBuilder('device');
 
     // 关联用户绑定信息
-    queryBuilder.leftJoinAndSelect(
-      'device_user_bindings',
+    // 使用实体类建立关联，避免把数据库表名直接交给 TypeORM 实体查询导致 SQL 元数据异常。
+    queryBuilder.leftJoin(
+      DeviceUserBinding,
       'binding',
       'binding.device_id = device.device_id AND binding.status = :bindingStatus',
       { bindingStatus: 'active' },
@@ -89,15 +90,18 @@ export class FeifeiDeviceService {
     queryBuilder.skip((page - 1) * pageSize).take(pageSize);
 
     // 排序
-    queryBuilder.orderBy('device.created_at', 'DESC');
+    // QueryBuilder 使用实体属性名，TypeORM 会自动转换为数据库字段 created_at。
+    queryBuilder.orderBy('device.createdAt', 'DESC');
 
     const [devices, total] = await queryBuilder.getManyAndCount();
 
     // 查询绑定用户信息
     const deviceIds = devices.map((d) => d.deviceId);
-    const bindings = await this.bindings.find({
-      where: { deviceId: In(deviceIds), status: 'active' },
-    });
+    const bindings = deviceIds.length > 0
+      ? await this.bindings.find({
+          where: { deviceId: In(deviceIds), status: 'active' },
+        })
+      : [];
 
     const bindingMap = new Map<string, DeviceUserBinding>();
     bindings.forEach((b) => bindingMap.set(b.deviceId, b));

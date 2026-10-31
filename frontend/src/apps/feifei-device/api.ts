@@ -1,30 +1,7 @@
-import axios from 'axios';
+import http from '../../api/http';
 
-const api = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
-});
-
-// 请求拦截器：添加 JWT token
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// 响应拦截器：处理错误
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
+// The shared HTTP client injects access_token and handles authentication failures.
+const api = http;
 
 /** 设备查询参数 */
 export interface QueryDeviceParams {

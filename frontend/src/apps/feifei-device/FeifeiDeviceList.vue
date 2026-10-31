@@ -154,7 +154,11 @@ async function loadDevices() {
   loading.value = true;
   error.value = '';
   try {
-    const result = await feifeiDeviceApi.getDevices(queryParams.value);
+    // “全部”筛选使用空字符串表示；请求后端时删除空筛选项，避免触发枚举校验错误。
+    const requestParams: Partial<typeof queryParams.value> = { ...queryParams.value };
+    if (!requestParams.status) delete requestParams.status;
+    if (!requestParams.bindingStatus) delete requestParams.bindingStatus;
+    const result = await feifeiDeviceApi.getDevices(requestParams);
     devices.value = result.data;
     total.value = result.total;
   } catch (err: any) {
