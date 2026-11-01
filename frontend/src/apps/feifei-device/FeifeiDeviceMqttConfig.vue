@@ -25,7 +25,8 @@ import http from '../../api/http';
 const connections = ref<any[]>([]);
 const saving = ref(false);
 const config = reactive<any>({ connectionStatus: 'disconnected' });
-const form = reactive<any>({ mqttConnectionId: null, deviceTopic: 'xn/xn_device/#', commandTopic: 'xn/xn_device/{deviceId}/command', enabled: true });
+// 主题不设置产品默认值，必须由后台管理员按设备产品实际主题填写。
+const form = reactive<any>({ mqttConnectionId: null, deviceTopic: '', commandTopic: '', enabled: true });
 
 async function load() {
   const [connectionResult, configResult] = await Promise.all([http.get('/feifei-devices/mqtt-config/connections'), http.get('/feifei-devices/mqtt-config')]);

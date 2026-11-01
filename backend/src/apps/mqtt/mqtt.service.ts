@@ -203,6 +203,31 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     return rows.map((row) => ({ ...this.safeConnection(row), connected: this.clients.get(row.connectionCode)?.connected === true }));
   }
 
+  /** 查询最近 MQTT 消息，供后台实时监控页面使用。 */
+  async listMessages(query: {
+    connectionCode?: string;
+    topic?: string;
+    direction?: 'inbound' | 'outbound';
+    limit?: number;
+  }): Promise<MqttMessage[]> {
+    const limit = Math.min(Math.max(Number(query.limit) || 100, 1), 500);
+    const builder = this.messages.createQueryBuilder('message')
+      .orderBy('message.createdAt', 'DESC')
+      .take(limit);
+
+    if (query.connectionCode?.trim()) {
+      builder.andWhere('message.connection_code = :connectionCode', { connectionCode: query.connectionCode.trim() });
+    }
+    if (query.topic?.trim()) {
+      builder.andWhere('message.topic LIKE :topic', { topic: `%${query.topic.trim()}%` });
+    }
+    if (query.direction) {
+      builder.andWhere('message.direction = :direction', { direction: query.direction });
+    }
+
+    return builder.getMany();
+  }
+
   private async connect(connection: MqttConnection, throwOnError = false): Promise<void> {
     if (this.clients.has(connection.connectionCode)) await this.disconnect(connection.connectionCode);
     const url = this.buildUrl(connection);

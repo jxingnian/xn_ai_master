@@ -14,6 +14,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
       { path: 'connections', component: () => import('../apps/mqtt/MqttConnections.vue') },
       { path: 'subscriptions', component: () => import('../apps/mqtt/MqttSubscriptions.vue') },
       { path: 'publish', component: () => import('../apps/mqtt/MqttPublish.vue') },
+      { path: 'messages', component: () => import('../apps/mqtt/MqttMessages.vue') },
       { path: 'status', component: () => import('../apps/mqtt/MqttStatus.vue') },
       { path: 'docs', component: () => import('../apps/mqtt/MqttDocs.vue') },
     ] },

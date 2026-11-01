@@ -4,6 +4,8 @@ import { Repository, DataSource } from 'typeorm';
 import { DevicePairingCode } from './entities/device-pairing-code.entity';
 import { DeviceUserBinding } from './entities/device-user-binding.entity';
 import { DeviceDevice } from './entities/device-device.entity';
+import { InstalledApp } from '../../entities/installed-app.entity';
+import { MqttService } from '../mqtt/mqtt.service';
 import * as bcrypt from 'bcrypt';
 import { randomInt } from 'crypto';
 
@@ -32,6 +34,9 @@ export class FeifeiDevicePairingService {
     private readonly bindings: Repository<DeviceUserBinding>,
     @InjectRepository(DeviceDevice)
     private readonly devices: Repository<DeviceDevice>,
+    @InjectRepository(InstalledApp)
+    private readonly installedApps: Repository<InstalledApp>,
+    private readonly mqttService: MqttService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -132,7 +137,7 @@ export class FeifeiDevicePairingService {
     userId: number,
   ): Promise<{ success: boolean; deviceId: string; deviceName: string; boundAt: Date }> {
     // 在事务中执行配对流程
-    return await this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       // 1. 查找所有有效的配对码
       const activePairingCodes = await manager.find(DevicePairingCode, {
         where: { status: 'active' },
@@ -228,6 +233,56 @@ export class FeifeiDevicePairingService {
         boundAt: binding.boundAt,
       };
     });
+
+    // 数据库事务提交成功后再通知设备，避免数据库回滚而设备提前写入已绑定状态。
+    await this.notifyDeviceBound(result.deviceId, userId);
+    return result;
+  }
+
+  /**
+   * 向设备发送绑定成功指令。
+   *
+   * 设备端收到 commandType=bind_success 后应将绑定状态写入 NVS，重启时即可停止显示配对码。
+   * 当前接口沿用设备后台管理组件已有的 command 信封和凤飞飞 MQTT 配置，不写死服务器地址。
+   */
+  private async notifyDeviceBound(deviceId: string, userId: number): Promise<void> {
+    try {
+      const app = await this.installedApps.findOne({
+        where: { app: { code: 'feifei-device' }, status: 'enabled' },
+        relations: ['app'],
+      });
+      const config = app?.config || {};
+      const connectionCode = typeof config.mqttConnectionCode === 'string' ? config.mqttConnectionCode : '';
+      if (typeof config.commandTopic !== 'string' || !config.commandTopic.trim()) {
+        throw new Error('后台未配置设备指令发布主题');
+      }
+      const commandTopicTemplate = config.commandTopic.trim();
+      if (!connectionCode) {
+        this.logger.warn(`设备已绑定但未找到 MQTT 连接配置: ${deviceId}`);
+        return;
+      }
+
+      await this.mqttService.publish({
+        connectionCode,
+        topic: commandTopicTemplate.replace('{deviceId}', deviceId),
+        payload: {
+          version: 1,
+          messageId: `bind-${Date.now()}-${randomInt(100000, 1000000)}`,
+          type: 'command',
+          deviceId,
+          timestamp: Date.now(),
+          data: {
+            commandType: 'bind_success',
+            params: { userId },
+          },
+        },
+        qos: 1,
+      });
+      this.logger.log(`已向设备发送绑定成功指令: ${deviceId}`);
+    } catch (error) {
+      // 绑定已经落库，发送失败不能回滚绑定；记录明确日志供后续补发或设备重连时处理。
+      this.logger.error(`发送设备绑定成功指令失败: ${deviceId}`, error instanceof Error ? error.stack : String(error));
+    }
   }
 
   /**
@@ -362,6 +417,21 @@ export class FeifeiDevicePairingService {
     binding.status = 'removed';
     binding.unboundAt = new Date();
     await this.bindings.save(binding);
+
+    // 设备端配对码保存在 NVS 中，解绑后通常仍会继续使用原配对码。
+    // 立即恢复最近一条配对记录并刷新有效期，避免必须等待设备重新上报心跳才能再次绑定。
+    const latestPairingCode = await this.pairingCodes.findOne({
+      where: { deviceId },
+      order: { createdAt: 'DESC' },
+    });
+    if (latestPairingCode) {
+      latestPairingCode.status = 'active';
+      latestPairingCode.usedAt = null;
+      latestPairingCode.failedAttempts = 0;
+      latestPairingCode.expiresAt = new Date(Date.now() + this.defaultExpiresInSeconds * 1000);
+      await this.pairingCodes.save(latestPairingCode);
+      this.logger.log(`解绑后已恢复配对码有效期: 设备=${deviceId}, 过期时间=${latestPairingCode.expiresAt.toISOString()}`);
+    }
 
     this.logger.log(`设备解绑成功: 设备=${deviceId}, 用户=${userId}`);
 

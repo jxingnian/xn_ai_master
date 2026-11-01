@@ -259,7 +259,10 @@ export class FeifeiDeviceController {
     if (config.enabled !== true || !config.mqttConnectionCode) {
       throw new BadRequestException('请先在凤飞飞应用的 MQTT 配置中选择并启用连接');
     }
-    const topic = String(config.commandTopic || 'xn/xn_device/{deviceId}/command').replace('{deviceId}', deviceId);
+    if (typeof config.commandTopic !== 'string' || !config.commandTopic.trim()) {
+      throw new BadRequestException('请先在后台配置指令发布主题');
+    }
+    const topic = config.commandTopic.trim().replace('{deviceId}', deviceId);
     await this.mqttService.publish({
       connectionCode: String(config.mqttConnectionCode),
       topic,

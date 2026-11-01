@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { DeviceDevice } from './entities/device-device.entity';
@@ -321,8 +321,9 @@ export class FeifeiDeviceStatusService {
       relations: ['app'],
     });
     const commandTopic = app?.config?.commandTopic;
-    return typeof commandTopic === 'string' && commandTopic.trim()
-      ? commandTopic.trim()
-      : 'xn/xn_device/{deviceId}/command';
+    if (typeof commandTopic !== 'string' || !commandTopic.trim()) {
+      throw new BadRequestException('请先在后台配置设备指令发布主题');
+    }
+    return commandTopic.trim();
   }
 }

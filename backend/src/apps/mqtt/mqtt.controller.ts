@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsDefined, IsIn, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
 import { JwtGuard } from '../../core/auth/jwt.guard';
 import { PermissionGuard } from '../../core/permission/permission.guard';
@@ -84,5 +84,6 @@ export class MqttController {
   @Delete('subscriptions/:id') @RequirePermission('mqtt:subscription:write') removeSubscription(@Param('id', ParseIntPipe) id: number) { return this.mqtt.removeSubscription(id); }
 
   @Get('status') @RequirePermission('mqtt:status:read') status() { return this.mqtt.status(); }
+  @Get('messages') @RequirePermission('mqtt:message:read') messages(@Query() query: { connectionCode?: string; topic?: string; direction?: 'inbound' | 'outbound'; limit?: number }) { return this.mqtt.listMessages(query); }
   @Post('publish') @RequirePermission('mqtt:message:publish') publish(@Body() dto: PublishDto) { return this.mqtt.publish(dto); }
 }

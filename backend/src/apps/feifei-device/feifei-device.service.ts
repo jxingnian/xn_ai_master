@@ -47,8 +47,9 @@ export class FeifeiDeviceService {
     return {
       mqttConnectionId: connection?.id || null,
       mqttConnectionCode: connection?.connectionCode || null,
-      deviceTopic: String(config.deviceTopic || 'xn/xn_device/#'),
-      commandTopic: String(config.commandTopic || 'xn/xn_device/{deviceId}/command'),
+      // 主题完全来自后台配置，未配置时返回空值，由前端提示管理员先完成配置。
+      deviceTopic: typeof config.deviceTopic === 'string' ? config.deviceTopic.trim() : '',
+      commandTopic: typeof config.commandTopic === 'string' ? config.commandTopic.trim() : '',
       enabled: config.enabled !== false,
       connectionStatus: status?.connected === true ? 'connected' : 'disconnected',
       connectionName: connection?.name || null,
@@ -61,8 +62,9 @@ export class FeifeiDeviceService {
     const connection = await this.mqttConnections.findOne({ where: { id: input.mqttConnectionId } });
     if (!connection) throw new BadRequestException('选择的 MQTT 连接不存在');
     if (connection.status !== 'enabled') throw new BadRequestException('选择的 MQTT 连接未启用');
-    const deviceTopic = input.deviceTopic?.trim() || 'xn/xn_device/#';
-    const commandTopic = input.commandTopic?.trim() || 'xn/xn_device/{deviceId}/command';
+    const deviceTopic = input.deviceTopic?.trim() || '';
+    const commandTopic = input.commandTopic?.trim() || '';
+    if (!deviceTopic || !commandTopic) throw new BadRequestException('请填写设备订阅主题和指令发布主题');
     if (!deviceTopic.includes('#') && !deviceTopic.includes('+')) throw new BadRequestException('设备订阅主题必须包含 MQTT 通配符');
 
     const oldSubscriptions = await this.mqttSubscriptions.find({ where: { subscriptionCode: 'feifei-device-subscription' } });

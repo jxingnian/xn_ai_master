@@ -37,7 +37,7 @@ export class FeifeiDeviceMqttConsumer implements OnModuleInit {
   private async handleMessage(message: MqttInboundMessage): Promise<void> {
     try {
       // 解析主题，提取设备ID和消息类型
-      // 主题格式: xn/xn_device/{deviceId}/{messageType}
+      // 主题格式由后台 MQTT 订阅配置决定，解析时只要求包含产品、设备和消息类型层级。
       const topicParts = message.topic.split('/');
       // 产品主题的第二段由 MQTT 配置决定，当前设备实际使用 fengfeifei，历史文档使用 xn_device。
       // 这里只校验主题结构，不把某个客户的产品编码写死在消费者中。

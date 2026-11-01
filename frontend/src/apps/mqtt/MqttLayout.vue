@@ -5,6 +5,7 @@
       <el-container>
         <el-aside width="170px" class="doc-aside">
           <el-menu router :default-active="route.path">
+            <el-menu-item index="/mqtt/messages">消息监控</el-menu-item>
             <el-menu-item index="/mqtt/connections">连接配置</el-menu-item>
             <el-menu-item index="/mqtt/subscriptions">订阅管理</el-menu-item>
             <el-menu-item index="/mqtt/publish">消息发布</el-menu-item>
