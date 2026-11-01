@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
+import { ScheduleModule } from '@nestjs/schedule';
 import { DeviceDevice } from './entities/device-device.entity';
 import { DeviceUserBinding } from './entities/device-user-binding.entity';
 import { DevicePairingCode } from './entities/device-pairing-code.entity';
@@ -10,6 +11,7 @@ import { FeifeiDeviceService } from './feifei-device.service';
 import { FeifeiDeviceStatusService } from './feifei-device-status.service';
 import { FeifeiDevicePairingService } from './feifei-device-pairing.service';
 import { FeifeiDeviceMqttConsumer } from './feifei-device-mqtt.consumer';
+import { FeifeiDeviceSchedulerService } from './feifei-device-scheduler.service';
 import { MqttModule } from '../mqtt/mqtt.module';
 import { JwtGuard } from '../../core/auth/jwt.guard';
 import { PermissionGuard } from '../../core/permission/permission.guard';
@@ -38,6 +40,7 @@ import { MqttSubscription } from '../mqtt/entities/mqtt-subscription.entity';
       secret: process.env.JWT_SECRET || 'change-this-secret-in-production',
       signOptions: { expiresIn: '8h' },
     }),
+    ScheduleModule.forRoot(), // 启用定时任务
     MqttModule, // 导入 MQTT 应用模块
   ],
   controllers: [FeifeiDeviceController],
@@ -46,6 +49,7 @@ import { MqttSubscription } from '../mqtt/entities/mqtt-subscription.entity';
     FeifeiDeviceStatusService,
     FeifeiDevicePairingService,
     FeifeiDeviceMqttConsumer,
+    FeifeiDeviceSchedulerService,
     JwtGuard,
     PermissionGuard,
   ],

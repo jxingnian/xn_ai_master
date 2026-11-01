@@ -39,11 +39,13 @@
           <h3>设备绑定流程</h3>
           <ol>
             <li>设备先通过 MQTT 上报有效 status 消息，后台自动创建设备记录。</li>
-            <li>在设备详情中生成 6 位数字配对码。</li>
-            <li>在设备端或管理端提交配对码完成绑定。</li>
+            <li>后台自动生成 6 位数字配对码并通过 MQTT 下发给设备。</li>
+            <li>设备接收配对码后，在设备屏幕或界面上显示配对码。</li>
+            <li>用户看到设备上显示的配对码，打开后台设备管理页面。</li>
+            <li>在设备管理中点击"添加设备"，输入配对码完成绑定。</li>
             <li>绑定后，普通用户只能查看自己绑定的设备。</li>
           </ol>
-          <p class="notice">配对码默认有效期为 600 秒，可配置范围为 60 至 3600 秒。</p>
+          <p class="notice">配对码默认有效期为 600 秒，可配置范围为 60 至 3600 秒。配对码输入错误累计 5 次后将被锁定。</p>
         </section>
       </el-tab-pane>
     </el-tabs>
@@ -73,12 +75,14 @@ const sections = reactive({
 上报事件：xn/xn_device/{deviceId}/event
 上报指令应答：xn/xn_device/{deviceId}/command_ack
 接收后台指令：xn/xn_device/{deviceId}/command
+接收配对码：xn/xn_device/{deviceId}/command
 
 默认订阅过滤器：xn/xn_device/#
 默认指令主题：xn/xn_device/{deviceId}/command
 QoS：1
 
-主题中的 {deviceId} 必须替换为真实设备 ID，不能保留大括号。`,
+主题中的 {deviceId} 必须替换为真实设备 ID，不能保留大括号。
+设备首次上线后，后台会自动通过 command 主题下发配对码。`,
   statusMessage: `{
   "version": 1,
   "messageId": "msg-device-001-0001",
@@ -110,6 +114,24 @@ messageId 必须唯一，重复消息会被后台忽略。`,
 }
 
 command_ack 至少应包含 requestId，用于关联后台发布的指令。`,
+  pairingCodeMessage: `配对码下发主题：xn/xn_device/{deviceId}/command
+
+设备首次上线后，后台会自动生成配对码并下发：
+
+{
+  "version": 1,
+  "messageId": "pairing-1730000000000-abc123",
+  "type": "pairing_code",
+  "deviceId": "device-001",
+  "timestamp": 1730000000000,
+  "data": {
+    "pairingCode": "123456",
+    "expiresInSeconds": 600
+  }
+}
+
+设备收到后应在屏幕或界面上显示 6 位配对码，供用户在后台管理端输入完成绑定。
+配对码默认有效期 600 秒（10分钟）。`,
   apis: `基础地址：/api/feifei-devices
 认证请求头：Authorization: Bearer <JWT>
 
@@ -121,15 +143,16 @@ PATCH  /:id                               修改设备
 POST   /:id/enable                        启用设备
 POST   /:id/disable                       停用设备
 DELETE /:id                               删除设备
-POST   /:id/pairing-codes                 生成配对码
-POST   /:id/pair                          绑定设备
+POST   /pair                              通过配对码绑定设备
 POST   /:id/unbind                        解绑设备
 GET    /:id/pairing-records                查询配对记录
 GET    /:id/status-events                  查询状态事件
 POST   /:id/commands                       发送设备指令
 GET    /mqtt-config/connections            查询可选 MQTT 连接
 GET    /mqtt-config                       查询凤飞飞 MQTT 配置
-PUT    /mqtt-config                       保存凤飞飞 MQTT 配置`,
+PUT    /mqtt-config                       保存凤飞飞 MQTT 配置
+
+注意：POST /pair 接口用于用户输入配对码绑定设备，不需要设备ID。`,
   command: `请求：POST /api/feifei-devices/{id}/commands
 请求头：Authorization: Bearer <JWT>
 请求体：
@@ -182,10 +205,11 @@ const apiSections = [
   { key: 'connection', title: '一、接入方式', description: '设备不直接调用凤飞飞 HTTP 接口，设备需要连接 MQTT Broker，并通过 MQTT 上报状态和接收指令。', content: sections.connection },
   { key: 'topics', title: '二、MQTT 主题', description: '设备 ID 必须保持一致：主题中的 deviceId 必须等于消息 JSON 中的 deviceId。', content: sections.topics },
   { key: 'statusMessage', title: '三、设备上报消息', description: '设备上线、心跳和遥测都可以使用 status 或 telemetry 类型。后台收到有效消息后会更新设备在线状态。', content: sections.statusMessage },
-  { key: 'eventMessage', title: '四、设备事件和指令应答', description: '事件和指令应答使用相同的基础消息结构。当前后台会接收并记录消息，指令应答的业务结果关联功能待后续扩展。', content: sections.eventMessage },
-  { key: 'apis', title: '五、后台 REST API', description: '接口基础地址为 /api/feifei-devices，所有接口都需要登录后的 JWT。', content: sections.apis },
-  { key: 'command', title: '六、发送设备指令', description: 'REST API 返回成功只代表后台已将消息交给 MQTT 客户端发布，设备执行结果通过 command_ack 主题上报。', content: sections.command },
-  { key: 'rules', title: '七、状态规则和接入检查', description: '', content: sections.rules },
+  { key: 'pairingCodeMessage', title: '四、配对码下发消息', description: '设备首次上线后，后台自动生成配对码并通过 MQTT 下发，设备需要显示配对码供用户绑定。', content: sections.pairingCodeMessage },
+  { key: 'eventMessage', title: '五、设备事件和指令应答', description: '事件和指令应答使用相同的基础消息结构。当前后台会接收并记录消息，指令应答的业务结果关联功能待后续扩展。', content: sections.eventMessage },
+  { key: 'apis', title: '六、后台 REST API', description: '接口基础地址为 /api/feifei-devices，所有接口都需要登录后的 JWT。', content: sections.apis },
+  { key: 'command', title: '七、发送设备指令', description: 'REST API 返回成功只代表后台已将消息交给 MQTT 客户端发布，设备执行结果通过 command_ack 主题上报。', content: sections.command },
+  { key: 'rules', title: '八、状态规则和接入检查', description: '', content: sections.rules },
 ];
 
 /** 复制指定文档片段，便于直接发送给设备开发人员。 */

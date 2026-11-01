@@ -78,40 +78,40 @@
     <!-- 配对弹窗 -->
     <div v-if="pairingDialog.visible" class="dialog-overlay" @click.self="closePairingDialog">
       <div class="dialog">
-        <h3>连接设备</h3>
+        <h3>绑定设备</h3>
         <div class="dialog-content">
-          <p><strong>设备ID:</strong> {{ pairingDialog.device?.deviceId }}</p>
-          <p><strong>设备名称:</strong> {{ pairingDialog.device?.deviceName }}</p>
-          <p><strong>当前状态:</strong> {{ getStatusText(pairingDialog.device?.status || '') }}</p>
+          <p class="hint">请在设备屏幕上查看 6 位配对码，并在下方输入：</p>
 
-          <div v-if="pairingDialog.step === 'generate'" class="step">
-            <p>点击"生成配对码"按钮生成配对码</p>
-            <button @click="generatePairingCode" :disabled="pairingDialog.generating">
-              {{ pairingDialog.generating ? '生成中...' : '生成配对码' }}
-            </button>
-          </div>
-
-          <div v-if="pairingDialog.step === 'input'" class="step">
-            <p><strong>配对码:</strong> <span class="pairing-code">{{ pairingDialog.pairingCode }}</span></p>
-            <p><strong>有效期至:</strong> {{ formatTime(pairingDialog.expiresAt) }}</p>
+          <div class="step">
             <input
               v-model="pairingDialog.inputCode"
               type="text"
-              placeholder="请输入配对码"
+              placeholder="请输入设备显示的 6 位配对码"
               maxlength="6"
+              class="pairing-input"
               @keyup.enter="submitPairingCode"
             />
-            <button @click="submitPairingCode" :disabled="pairingDialog.pairing">
-              {{ pairingDialog.pairing ? '配对中...' : '提交配对' }}
+            <button @click="submitPairingCode" :disabled="pairingDialog.pairing || pairingDialog.inputCode.length !== 6">
+              {{ pairingDialog.pairing ? '绑定中...' : '确认绑定' }}
             </button>
           </div>
 
           <div v-if="pairingDialog.error" class="error-message">
             {{ pairingDialog.error }}
           </div>
+
+          <div class="tips">
+            <p><strong>使用说明：</strong></p>
+            <ol>
+              <li>设备首次上线后，会自动生成配对码</li>
+              <li>配对码会显示在设备屏幕或界面上</li>
+              <li>配对码有效期为 10 分钟</li>
+              <li>输入错误 5 次后配对码将被锁定</li>
+            </ol>
+          </div>
         </div>
         <div class="dialog-actions">
-          <button @click="closePairingDialog">关闭</button>
+          <button @click="closePairingDialog">取消</button>
         </div>
       </div>
     </div>
@@ -137,12 +137,7 @@ const queryParams = ref({
 
 const pairingDialog = ref({
   visible: false,
-  device: null as Device | null,
-  step: 'generate' as 'generate' | 'input',
-  pairingCode: '',
-  expiresAt: '',
   inputCode: '',
-  generating: false,
   pairing: false,
   error: '',
 });
@@ -207,48 +202,28 @@ function viewDetail(device: Device) {
 function pairDevice(device: Device) {
   pairingDialog.value = {
     visible: true,
-    device,
-    step: 'generate',
-    pairingCode: '',
-    expiresAt: '',
     inputCode: '',
-    generating: false,
     pairing: false,
     error: '',
   };
 }
 
-/** 生成配对码 */
-async function generatePairingCode() {
-  if (!pairingDialog.value.device) return;
-
-  pairingDialog.value.generating = true;
-  pairingDialog.value.error = '';
-  try {
-    const result = await feifeiDeviceApi.createPairingCode(pairingDialog.value.device.id);
-    pairingDialog.value.pairingCode = result.pairingCode;
-    pairingDialog.value.expiresAt = result.expiresAt;
-    pairingDialog.value.step = 'input';
-  } catch (err: any) {
-    pairingDialog.value.error = err.response?.data?.message || '生成配对码失败';
-  } finally {
-    pairingDialog.value.generating = false;
-  }
-}
-
 /** 提交配对码 */
 async function submitPairingCode() {
-  if (!pairingDialog.value.device || !pairingDialog.value.inputCode) return;
+  if (!pairingDialog.value.inputCode || pairingDialog.value.inputCode.length !== 6) {
+    pairingDialog.value.error = '请输入 6 位配对码';
+    return;
+  }
 
   pairingDialog.value.pairing = true;
   pairingDialog.value.error = '';
   try {
-    await feifeiDeviceApi.pairDevice(pairingDialog.value.device.id, pairingDialog.value.inputCode);
-    alert('设备配对成功！');
+    const result = await feifeiDeviceApi.pairDeviceByCode(pairingDialog.value.inputCode);
+    alert(`设备"${result.deviceName}"绑定成功！`);
     closePairingDialog();
     loadDevices();
   } catch (err: any) {
-    pairingDialog.value.error = err.response?.data?.message || '配对失败';
+    pairingDialog.value.error = err.response?.data?.message || '绑定失败';
   } finally {
     pairingDialog.value.pairing = false;
   }
@@ -482,61 +457,117 @@ h2 {
   background: white;
   border-radius: 8px;
   padding: 20px;
-  min-width: 400px;
+  min-width: 500px;
   max-width: 600px;
 }
 
 .dialog h3 {
   margin-top: 0;
   margin-bottom: 20px;
+  color: #333;
 }
 
 .dialog-content {
   margin-bottom: 20px;
 }
 
+.hint {
+  font-size: 16px;
+  color: #333;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #e6f7ff;
+  border-left: 4px solid #1890ff;
+  border-radius: 4px;
+}
+
 .step {
   margin-top: 20px;
-  padding: 15px;
-  background: #f5f5f5;
-  border-radius: 4px;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 8px;
+  text-align: center;
 }
 
-.pairing-code {
-  font-size: 24px;
-  font-weight: bold;
-  color: #1890ff;
-  letter-spacing: 4px;
-}
-
-.step input {
+.pairing-input {
   width: 100%;
-  padding: 8px;
+  padding: 15px;
   margin: 10px 0;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  font-size: 14px;
+  border: 2px solid #1890ff;
+  border-radius: 8px;
+  font-size: 24px;
+  text-align: center;
+  letter-spacing: 8px;
+  font-weight: bold;
+}
+
+.pairing-input:focus {
+  outline: none;
+  border-color: #40a9ff;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
 }
 
 .step button {
-  padding: 8px 16px;
+  padding: 12px 32px;
+  margin-top: 10px;
   background: #1890ff;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.step button:hover:not(:disabled) {
+  background: #40a9ff;
+}
+
+.step button:disabled {
+  background: #d9d9d9;
+  cursor: not-allowed;
+}
+
+.tips {
+  margin-top: 20px;
+  padding: 15px;
+  background: #fff7e6;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #666;
+}
+
+.tips strong {
+  color: #333;
+}
+
+.tips ol {
+  margin: 10px 0 0 0;
+  padding-left: 20px;
+}
+
+.tips li {
+  margin: 5px 0;
+  line-height: 1.6;
 }
 
 .dialog-actions {
   text-align: right;
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f0;
 }
 
 .dialog-actions button {
-  padding: 8px 16px;
-  background: #d9d9d9;
-  color: #333;
-  border: none;
+  padding: 8px 20px;
+  background: #fff;
+  color: #666;
+  border: 1px solid #d9d9d9;
   border-radius: 4px;
   cursor: pointer;
+}
+
+.dialog-actions button:hover {
+  color: #333;
+  border-color: #40a9ff;
 }
 </style>

@@ -36,17 +36,18 @@ export class FeifeiDevicePairingService {
   ) {}
 
   /**
-   * 生成配对码。
+   * 为设备生成配对码（内部使用）。
    *
    * @param deviceId 设备ID
    * @param userId 创建人ID
    * @param expiresInSeconds 有效期（秒），默认600秒
    * @returns 包含明文配对码和过期时间的对象
    */
-  async generatePairingCode(
+  async generatePairingCodeForDevice(
     deviceId: string,
     userId: number,
     expiresInSeconds?: number,
+    pairingCode?: string,
   ): Promise<{ pairingCode: string; expiresAt: Date }> {
     // 检查设备是否存在
     const device = await this.devices.findOne({ where: { deviceId } });
@@ -60,14 +61,18 @@ export class FeifeiDevicePairingService {
       { status: 'cancelled', updatedAt: new Date() },
     );
 
-    // 生成6位数字配对码
-    const pairingCode = this.generateSixDigitCode();
+    // 优先使用设备自己生成并持续上报的配对码，确保后台输入的码与设备 NVS 中的码一致。
+    // 设备未提供配对码时才由后台生成，兼容没有本地配对码能力的旧设备。
+    const effectivePairingCode = pairingCode || this.generateSixDigitCode();
+    if (!/^\d{6}$/.test(effectivePairingCode)) {
+      throw new BadRequestException('设备配对码必须是6位数字');
+    }
 
     // 计算过期时间
     const expiresAt = new Date(Date.now() + (expiresInSeconds || this.defaultExpiresInSeconds) * 1000);
 
     // 对配对码进行哈希
-    const codeHash = await bcrypt.hash(pairingCode, 10);
+    const codeHash = await bcrypt.hash(effectivePairingCode, 10);
 
     // 保存配对码
     const entity = this.pairingCodes.create({
@@ -83,11 +88,150 @@ export class FeifeiDevicePairingService {
     this.logger.log(`生成配对码: 设备=${deviceId}, 创建人=${userId}, 过期时间=${expiresAt.toISOString()}`);
 
     // 只在创建时返回明文配对码
-    return { pairingCode, expiresAt };
+    return { pairingCode: effectivePairingCode, expiresAt };
   }
 
   /**
-   * 验证配对码并绑定设备。
+   * 同步设备心跳中的配对码。
+   *
+   * 设备配对码保存在设备 NVS 中，设备重启后可能继续使用旧码，也可能因清除 NVS
+   * 生成新码。后台必须在设备未绑定时持续校验并刷新记录，不能只在设备首次入库时处理。
+   * 配对记录仍在有效期内且哈希匹配时直接复用，避免每次心跳都创建历史记录。
+   */
+  async syncPairingCodeFromDevice(deviceId: string, devicePairingCode: string): Promise<void> {
+    if (!/^\d{6}$/.test(devicePairingCode)) {
+      this.logger.warn(`忽略非法设备配对码: 设备=${deviceId}`);
+      return;
+    }
+
+    // 已绑定设备不再刷新配对码，避免绑定完成后又产生新的可用配对入口。
+    const activeBinding = await this.bindings.findOne({ where: { deviceId, status: 'active' } });
+    if (activeBinding) return;
+
+    const activeCode = await this.pairingCodes.findOne({
+      where: { deviceId, status: 'active' },
+      order: { createdAt: 'DESC' },
+    });
+    if (activeCode && activeCode.expiresAt > new Date() && await bcrypt.compare(devicePairingCode, activeCode.codeHash)) {
+      return;
+    }
+
+    await this.generatePairingCodeForDevice(deviceId, 0, undefined, devicePairingCode);
+    this.logger.log(`已同步设备配对码: 设备=${deviceId}`);
+  }
+
+  /**
+   * 通过配对码验证并绑定设备。
+   *
+   * @param pairingCode 配对码明文
+   * @param userId 绑定的用户ID
+   * @returns 绑定结果
+   */
+  async pairDeviceByCode(
+    pairingCode: string,
+    userId: number,
+  ): Promise<{ success: boolean; deviceId: string; deviceName: string; boundAt: Date }> {
+    // 在事务中执行配对流程
+    return await this.dataSource.transaction(async (manager) => {
+      // 1. 查找所有有效的配对码
+      const activePairingCodes = await manager.find(DevicePairingCode, {
+        where: { status: 'active' },
+        order: { createdAt: 'DESC' },
+      });
+
+      if (activePairingCodes.length === 0) {
+        throw new BadRequestException('配对码不存在或已失效');
+      }
+
+      // 2. 遍历查找匹配的配对码
+      let matchedPairingCode: DevicePairingCode | null = null;
+      for (const code of activePairingCodes) {
+        const isValid = await bcrypt.compare(pairingCode, code.codeHash);
+        if (isValid) {
+          matchedPairingCode = code;
+          break;
+        }
+      }
+
+      if (!matchedPairingCode) {
+        throw new BadRequestException('配对码错误');
+      }
+
+      const pairingCodeEntity = matchedPairingCode;
+      const deviceId = pairingCodeEntity.deviceId;
+
+      // 3. 查找设备
+      const device = await manager.findOne(DeviceDevice, { where: { deviceId } });
+      if (!device) {
+        throw new NotFoundException('设备不存在');
+      }
+
+      // 4. 检查配对码是否过期
+      if (new Date() > pairingCodeEntity.expiresAt) {
+        pairingCodeEntity.status = 'expired';
+        await manager.save(pairingCodeEntity);
+        throw new BadRequestException('配对码已过期');
+      }
+
+      // 5. 检查配对码是否已锁定
+      if (pairingCodeEntity.failedAttempts >= this.maxFailedAttempts) {
+        pairingCodeEntity.status = 'locked';
+        await manager.save(pairingCodeEntity);
+        throw new BadRequestException('配对码已锁定，请联系管理员');
+      }
+
+      // 6. 检查设备是否已被其他用户绑定
+      const existingBinding = await manager.findOne(DeviceUserBinding, {
+        where: { deviceId, status: 'active' },
+      });
+
+      if (existingBinding && existingBinding.userId !== userId) {
+        throw new BadRequestException('设备已被其他用户绑定');
+      }
+
+      if (existingBinding && existingBinding.userId === userId) {
+        // 用户重复绑定同一设备，直接返回成功
+        pairingCodeEntity.status = 'used';
+        pairingCodeEntity.usedAt = new Date();
+        await manager.save(pairingCodeEntity);
+
+        return {
+          success: true,
+          deviceId,
+          deviceName: device.deviceName,
+          boundAt: existingBinding.boundAt,
+        };
+      }
+
+      // 7. 创建绑定关系
+      const binding = manager.create(DeviceUserBinding, {
+        deviceId,
+        userId,
+        boundAt: new Date(),
+        boundBy: userId,
+        status: 'active',
+      });
+
+      await manager.save(binding);
+
+      // 8. 标记配对码已使用
+      pairingCodeEntity.status = 'used';
+      pairingCodeEntity.usedAt = new Date();
+      await manager.save(pairingCodeEntity);
+
+      this.logger.log(`设备配对成功: 设备=${deviceId}, 用户=${userId}`);
+
+      return {
+        success: true,
+        deviceId,
+        deviceName: device.deviceName,
+        boundAt: binding.boundAt,
+      };
+    });
+  }
+
+  /**
+   * 验证配对码并绑定设备（旧方法，保留用于兼容）。
    *
    * @param deviceId 设备ID
    * @param pairingCode 配对码明文
@@ -235,6 +379,31 @@ export class FeifeiDevicePairingService {
       where: { deviceId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /**
+   * 清理过期的配对码。
+   *
+   * 定时任务调用，将过期的配对码标记为 expired。
+   */
+  async cleanExpiredPairingCodes(): Promise<void> {
+    const now = new Date();
+    const expiredCodes = await this.pairingCodes.find({
+      where: { status: 'active' },
+    });
+
+    let cleanedCount = 0;
+    for (const code of expiredCodes) {
+      if (now > code.expiresAt) {
+        code.status = 'expired';
+        await this.pairingCodes.save(code);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.logger.log(`已清理 ${cleanedCount} 个过期配对码`);
+    }
   }
 
   /**

@@ -39,7 +39,9 @@ export class FeifeiDeviceMqttConsumer implements OnModuleInit {
       // 解析主题，提取设备ID和消息类型
       // 主题格式: xn/xn_device/{deviceId}/{messageType}
       const topicParts = message.topic.split('/');
-      if (topicParts.length !== 4 || topicParts[0] !== 'xn' || topicParts[1] !== 'xn_device') {
+      // 产品主题的第二段由 MQTT 配置决定，当前设备实际使用 fengfeifei，历史文档使用 xn_device。
+      // 这里只校验主题结构，不把某个客户的产品编码写死在消费者中。
+      if (topicParts.length !== 4 || topicParts[0] !== 'xn') {
         this.logger.warn(`主题格式不正确: ${message.topic}`);
         return;
       }

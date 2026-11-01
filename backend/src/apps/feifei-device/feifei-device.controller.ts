@@ -24,7 +24,6 @@ import { MqttService } from '../mqtt/mqtt.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { QueryDeviceDto } from './dto/query-device.dto';
-import { CreatePairingCodeDto } from './dto/create-pairing-code.dto';
 import { PairDeviceDto } from './dto/pair-device.dto';
 import { SendCommandDto } from './dto/send-command.dto';
 import { DeviceDevice } from './entities/device-device.entity';
@@ -72,7 +71,8 @@ export class FeifeiDeviceController {
    */
   @Get('overview')
   async getOverview(@Request() req: any): Promise<Record<string, unknown>> {
-    const userId = req.user?.userId;
+    // JwtGuard 将 JWT 的管理员 ID 保存在标准 sub 字段中，所有设备接口统一使用该字段。
+    const userId = req.user?.sub;
     return await this.statusService.getDeviceStatistics(userId);
   }
 
@@ -83,7 +83,8 @@ export class FeifeiDeviceController {
    */
   @Get()
   async findAll(@Query() query: QueryDeviceDto, @Request() req: any): Promise<Record<string, unknown>> {
-    const userId = req.user?.userId;
+    // JwtGuard 将 JWT 的管理员 ID 保存在标准 sub 字段中，所有设备接口统一使用该字段。
+    const userId = req.user?.sub;
     return await this.deviceService.findAll(query, userId);
   }
 
@@ -154,43 +155,21 @@ export class FeifeiDeviceController {
   }
 
   /**
-   * 生成配对码。
+   * 通过配对码绑定设备。
    *
-   * POST /api/feifei-devices/:id/pairing-codes
+   * POST /api/feifei-devices/pair
    *
-   * 响应只返回本次生成的明文配对码和过期时间。
+   * 用户输入设备上显示的配对码，系统查找对应设备并完成绑定。
    */
-  @Post(':id/pairing-codes')
-  @HttpCode(HttpStatus.CREATED)
-  async createPairingCode(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: CreatePairingCodeDto,
-    @Request() req: any,
-  ): Promise<{ pairingCode: string; expiresAt: Date }> {
-    const userId = req.user?.userId;
-    const device = await this.deviceService.findOne(id);
-    const deviceId = device.deviceId as string;
-
-    return await this.pairingService.generatePairingCode(deviceId, userId, dto.expiresInSeconds);
-  }
-
-  /**
-   * 提交配对码绑定设备。
-   *
-   * POST /api/feifei-devices/:id/pair
-   */
-  @Post(':id/pair')
+  @Post('pair')
   @HttpCode(HttpStatus.OK)
-  async pair(
-    @Param('id', ParseIntPipe) id: number,
+  async pairByCode(
     @Body() dto: PairDeviceDto,
     @Request() req: any,
-  ): Promise<{ success: boolean; deviceId: string; boundAt: Date }> {
-    const userId = req.user?.userId;
-    const device = await this.deviceService.findOne(id);
-    const deviceId = device.deviceId as string;
-
-    return await this.pairingService.pairDevice(deviceId, dto.pairingCode, userId);
+  ): Promise<{ success: boolean; deviceId: string; deviceName: string; boundAt: Date }> {
+    // JWT 载荷使用 sub 表示当前管理员 ID，不能读取不存在的 userId 字段。
+    const userId = req.user?.sub;
+    return await this.pairingService.pairDeviceByCode(dto.pairingCode, userId);
   }
 
   /**
@@ -201,7 +180,8 @@ export class FeifeiDeviceController {
   @Post(':id/unbind')
   @HttpCode(HttpStatus.OK)
   async unbind(@Param('id', ParseIntPipe) id: number, @Request() req: any): Promise<{ success: boolean }> {
-    const userId = req.user?.userId;
+    // JWT 载荷使用 sub 表示当前管理员 ID，解绑时必须使用同一个管理员身份。
+    const userId = req.user?.sub;
     const device = await this.deviceService.findOne(id);
     const deviceId = device.deviceId as string;
 

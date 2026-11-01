@@ -1,9 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { DeviceDevice } from './entities/device-device.entity';
 import { DeviceStatusEvent } from './entities/device-status-event.entity';
 import { createHash } from 'crypto';
+import { FeifeiDevicePairingService } from './feifei-device-pairing.service';
+import { MqttService } from '../mqtt/mqtt.service';
+import { InstalledApp } from '../../entities/installed-app.entity';
 
 /**
  * 设备状态服务。
@@ -26,6 +29,12 @@ export class FeifeiDeviceStatusService {
     private readonly devices: Repository<DeviceDevice>,
     @InjectRepository(DeviceStatusEvent)
     private readonly statusEvents: Repository<DeviceStatusEvent>,
+    @Inject(forwardRef(() => FeifeiDevicePairingService))
+    private readonly pairingService: FeifeiDevicePairingService,
+    @Inject(forwardRef(() => MqttService))
+    private readonly mqttService: MqttService,
+    @InjectRepository(InstalledApp)
+    private readonly installedApps: Repository<InstalledApp>,
   ) {}
 
   /**
@@ -53,6 +62,12 @@ export class FeifeiDeviceStatusService {
     // 查找或创建设备记录
     let device = await this.devices.findOne({ where: { deviceId } });
 
+    // 无论设备是否首次入库，都同步未绑定设备心跳中的配对码，修复后台记录过期后无法重新绑定的问题。
+    const deviceData = payload.data && typeof payload.data === 'object'
+      ? payload.data as Record<string, unknown>
+      : {};
+    const pairingCode = typeof deviceData.pairingCode === 'string' ? deviceData.pairingCode : undefined;
+
     if (!device) {
       // 设备首次上线，创建设备记录，状态为 discovered
       device = this.devices.create({
@@ -65,6 +80,11 @@ export class FeifeiDeviceStatusService {
       });
       await this.devices.save(device);
       this.logger.log(`设备首次上线，已创建设备记录: ${deviceId}`);
+
+      // 设备心跳已携带本地配对码，直接登记该配对码，避免后台生成另一个设备无法识别的码。
+      await this.generateAndSendPairingCode(deviceId, pairingCode);
+    } else if (pairingCode) {
+      await this.pairingService.syncPairingCodeFromDevice(deviceId, pairingCode);
     }
 
     // 如果设备已停用，拒绝处理并记录
@@ -226,5 +246,83 @@ export class FeifeiDeviceStatusService {
       unboundCount,
       todayOnlineCount,
     };
+  }
+
+  /**
+   * 生成配对码并通过MQTT下发给设备。
+   *
+   * @param deviceId 设备ID
+   */
+  private async generateAndSendPairingCode(deviceId: string, devicePairingCode?: string): Promise<void> {
+    try {
+      // 生成配对码（使用系统用户ID 0）
+      const result = await this.pairingService.generatePairingCodeForDevice(deviceId, 0, undefined, devicePairingCode);
+
+      this.logger.log(`已为设备 ${deviceId} 生成配对码，过期时间: ${result.expiresAt.toISOString()}`);
+
+      // 设备提供本地配对码时无需下发；只有旧设备没有配对码时才发送兼容消息。
+      if (!devicePairingCode) {
+        await this.sendPairingCodeToDevice(deviceId, result.pairingCode);
+      }
+    } catch (error) {
+      this.logger.error(`生成并下发配对码失败: ${deviceId}`, error instanceof Error ? error.stack : String(error));
+    }
+  }
+
+  /**
+   * 通过MQTT将配对码发送给设备。
+   *
+   * @param deviceId 设备ID
+   * @param pairingCode 配对码
+   */
+  private async sendPairingCodeToDevice(deviceId: string, pairingCode: string): Promise<void> {
+    try {
+      // 获取MQTT配置
+      const connections = await this.mqttService.status();
+      const activeConnection = connections.find((conn: any) => conn.connected === true);
+
+      if (!activeConnection) {
+        this.logger.warn(`没有可用的MQTT连接，无法下发配对码给设备: ${deviceId}`);
+        return;
+      }
+
+      // 构建配对码下发消息
+      const message = {
+        version: 1,
+        messageId: `pairing-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        type: 'pairing_code',
+        deviceId,
+        timestamp: Date.now(),
+        data: {
+          pairingCode,
+          expiresInSeconds: 600,
+        },
+      };
+
+      // 使用凤飞飞应用保存的命令主题配置，保证不同客户和不同产品主题均可工作。
+      const topic = (await this.getConfiguredCommandTopic()).replace('{deviceId}', deviceId);
+      await this.mqttService.publish({
+        connectionCode: String(activeConnection.connectionCode),
+        topic,
+        payload: message,
+        qos: 1,
+      });
+
+      this.logger.log(`配对码已下发给设备: ${deviceId}, 主题: ${topic}`);
+    } catch (error) {
+      this.logger.error(`下发配对码失败: ${deviceId}`, error instanceof Error ? error.stack : String(error));
+    }
+  }
+
+  /** 读取当前凤飞飞应用的命令主题，旧配置缺失时使用平台默认主题。 */
+  private async getConfiguredCommandTopic(): Promise<string> {
+    const app = await this.installedApps.findOne({
+      where: { app: { code: 'feifei-device' }, status: 'enabled' },
+      relations: ['app'],
+    });
+    const commandTopic = app?.config?.commandTopic;
+    return typeof commandTopic === 'string' && commandTopic.trim()
+      ? commandTopic.trim()
+      : 'xn/xn_device/{deviceId}/command';
   }
 }

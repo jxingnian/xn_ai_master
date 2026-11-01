@@ -85,13 +85,19 @@ export const feifeiDeviceApi = {
     return data;
   },
 
-  /** 生成配对码 */
+  /** 通过配对码绑定设备（新接口） */
+  async pairDeviceByCode(pairingCode: string): Promise<{ success: boolean; deviceId: string; deviceName: string; boundAt: string }> {
+    const { data } = await api.post('/feifei-devices/pair', { pairingCode });
+    return data;
+  },
+
+  /** 生成配对码（已废弃，仅保留用于兼容） */
   async createPairingCode(id: number, expiresInSeconds?: number): Promise<{ pairingCode: string; expiresAt: string }> {
     const { data } = await api.post(`/feifei-devices/${id}/pairing-codes`, { expiresInSeconds });
     return data;
   },
 
-  /** 提交配对码绑定设备 */
+  /** 提交配对码绑定设备（已废弃，仅保留用于兼容） */
   async pairDevice(id: number, pairingCode: string): Promise<{ success: boolean; deviceId: string; boundAt: string }> {
     const { data } = await api.post(`/feifei-devices/${id}/pair`, { pairingCode });
     return data;
