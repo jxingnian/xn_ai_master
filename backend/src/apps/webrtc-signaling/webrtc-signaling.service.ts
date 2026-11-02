@@ -120,6 +120,24 @@ export class WebrtcSignalingService implements OnModuleInit, OnModuleDestroy {
     return this.sessionResponse(session);
   }
 
+  /**
+   * 保存浏览器媒体统计并输出可检索日志。
+   * 这里只接受有限大小的计数和状态字段，明确禁止把 SDP、ICE 或媒体内容写入后台。
+   */
+  async recordMediaDiagnostics(sessionId: string, input: Record<string, unknown>): Promise<{ accepted: true }> {
+    const session = await this.sessions.findOne({ where: { sessionId } });
+    if (!session) throw new NotFoundException('通话会话不存在');
+    const allowed = ['event', 'timestamp', 'connectionState', 'iceConnectionState', 'state', 'kind', 'trackId', 'readyState', 'error', 'message', 'errorCode', 'text', 'url', 'media'];
+    const payload: Record<string, unknown> = {};
+    for (const key of allowed) if (input[key] !== undefined) payload[key] = input[key];
+    const raw = JSON.stringify(payload);
+    if (raw.length > 6000) throw new BadRequestException('媒体诊断数据超过大小限制');
+    const event = String(payload.event || 'unknown');
+    await this.writeEvent(session, 'frontend', `media.${event}`, session.currentSequence, payload, null);
+    this.logger.log(`WebRTC媒体诊断: session=${sessionId}, event=${event}, data=${raw}`);
+    return { accepted: true };
+  }
+
   async getConfig(): Promise<Record<string, unknown>> {
     const config = await this.ensureDefaultConfig();
     return { id: config.id, name: config.name, stunUrls: config.stunUrls, turnUrls: config.turnUrls, productCode: config.productCode, commandTopicTemplate: config.commandTopicTemplate, signalTopicTemplate: config.signalTopicTemplate, turnConfigured: Boolean(config.turnUrls.length && config.turnUsernameCiphertext && config.turnSecretCiphertext), turnCredentialMode: config.turnCredentialMode, enabled: config.enabled, isDefault: config.isDefault, updatedAt: config.updatedAt };
@@ -186,6 +204,16 @@ export class WebrtcSignalingService implements OnModuleInit, OnModuleDestroy {
     if (TERMINAL_STATES.has(session.status)) throw new BadRequestException('会话已经结束');
     // 记录方向、类型和序列号，确认设备 answer 是否到达后台；不记录 SDP/ICE 内容，避免日志泄露协商数据。
     this.logger.log(`WebRTC信令接收: session=${session.sessionId}, direction=${direction}, type=${message.type}, sequence=${message.sequence}, currentSequence=${session.currentSequence}, messageId=${message.messageId}`);
+    /*
+     * 设备必须先接受本次会话，浏览器才能开始发送 SDP/ICE。
+     * 设备忙线时会拒绝新邀请；如果继续转发浏览器 Offer，Offer 会进入旧 Peer，
+     * 造成设备拒绝邀请但仍处理新会话、后台和设备会话状态彻底分离。
+     */
+    const mediaSignalTypes = new Set(['webrtc.offer', 'webrtc.ice-candidate', 'webrtc.ice-complete']);
+    if (direction === 'frontend' && mediaSignalTypes.has(message.type) && session.status !== 'connecting') {
+      this.logger.warn(`拒绝未被设备接受的媒体信令: session=${session.sessionId}, type=${message.type}, status=${session.status}`);
+      throw new BadRequestException('设备尚未接受当前通话，禁止发送媒体协商信令');
+    }
     const duplicate = await this.events.findOne({ where: { sessionId: session.sessionId, messageId: message.messageId } });
     if (duplicate) {
       // MQTT QoS 1 允许重复投递，重复消息只按 messageId 去重并保留明确日志。

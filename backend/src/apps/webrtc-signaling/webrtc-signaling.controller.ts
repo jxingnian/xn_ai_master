@@ -16,6 +16,7 @@ export class WebrtcSignalingController {
   @Get('sessions/:id/events') @RequirePermission('webrtc:session:read') events(@Param('id') id: string) { return this.service.getEvents(id); }
   @Get('sessions/:id') @RequirePermission('webrtc:session:read') get(@Param('id') id: string) { return this.service.getSession(id); }
   @Post('sessions/:id/terminate') @RequirePermission('webrtc:session:terminate') terminate(@Param('id') id: string, @Body() body: { reason?: string }) { return this.service.terminate(id, body?.reason || 'user_hangup'); }
+  @Post('sessions/:id/diagnostics') @RequirePermission('webrtc:session:create') diagnostics(@Param('id') id: string, @Body() body: Record<string, unknown>) { return this.service.recordMediaDiagnostics(id, body); }
   @Get('config') @RequirePermission('webrtc:config:read') config() { return this.service.getConfig(); }
   @Put('config') @RequirePermission('webrtc:config:write') update(@Body() dto: UpdateWebrtcConfigDto) { return this.service.updateConfig(dto); }
   @Get('monitor/summary') @RequirePermission('webrtc:monitor:read') monitor() { return this.service.getMonitor(); }
