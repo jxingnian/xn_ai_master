@@ -111,12 +111,13 @@ chmod 600 "$INSTALL_ROOT/.env"
 
 log "building backend"
 cd "$INSTALL_ROOT/backend"
-if [ -f package-lock.json ]; then npm ci --registry=https://registry.npmmirror.com; else npm install --registry=https://registry.npmmirror.com; fi
+if [ -f package-lock.json ]; then npm ci --ignore-scripts --registry=https://registry.npmmirror.com; else npm install --ignore-scripts --registry=https://registry.npmmirror.com; fi
+npm rebuild bcrypt --build-from-source --offline
 npm run build
 
 log "building frontend"
 cd "$INSTALL_ROOT/frontend"
-if [ -f package-lock.json ]; then npm ci --registry=https://registry.npmmirror.com; else npm install --registry=https://registry.npmmirror.com; fi
+if [ -f package-lock.json ]; then npm ci --ignore-scripts --registry=https://registry.npmmirror.com; else npm install --ignore-scripts --registry=https://registry.npmmirror.com; fi
 npm run build
 rm -rf "$WEB_ROOT"
 mkdir -p "$WEB_ROOT"
@@ -154,6 +155,10 @@ server {
     index index.html;
     location /api/ {
         proxy_pass http://127.0.0.1:3000/api/;
+        # WebSocket 信令需要 HTTP/1.1 以及 Upgrade/Connection 转发头。
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

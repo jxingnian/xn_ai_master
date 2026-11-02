@@ -19,10 +19,11 @@ import { SettingsModule } from './platform/settings/settings.module';
 import { AuditLogService } from './platform/settings/audit/audit-log.service';
 import { MqttModule } from './apps/mqtt/mqtt.module';
 import { FeifeiDeviceModule } from './apps/feifei-device/feifei-device.module';
+import { WebrtcSignalingModule } from './apps/webrtc-signaling/webrtc-signaling.module';
 
 /** 平台根模块：数据库、认证、应用管理和动态菜单组成首期最小闭环。 */
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), TypeOrmModule.forRoot({ type: 'postgres', url: process.env.DATABASE_URL || 'postgres://xn_platform:xn_platform@localhost:5432/xn_platform', autoLoadEntities: true, synchronize: true }), TypeOrmModule.forFeature([User, App, InstalledApp, Menu, AuditLog]), JwtModule.register({ secret: process.env.JWT_SECRET || 'change-this-secret-in-production', signOptions: { expiresIn: '8h' } }), SettingsModule, MqttModule, FeifeiDeviceModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), TypeOrmModule.forRoot({ type: 'postgres', url: process.env.DATABASE_URL || 'postgres://xn_platform:xn_platform@localhost:5432/xn_platform', autoLoadEntities: true, synchronize: true }), TypeOrmModule.forFeature([User, App, InstalledApp, Menu, AuditLog]), JwtModule.register({ secret: process.env.JWT_SECRET || 'change-this-secret-in-production', signOptions: { expiresIn: '8h' } }), SettingsModule, MqttModule, FeifeiDeviceModule, WebrtcSignalingModule],
   controllers: [AuthController, AppManagerController, MenuController],
   providers: [AuthService, JwtGuard, PermissionGuard, AppManagerService, MenuService, AuditLogService],
 })

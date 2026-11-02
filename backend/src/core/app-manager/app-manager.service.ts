@@ -22,6 +22,7 @@ export class AppManagerService implements OnModuleInit {
     const definitions = [
       { name: '设备管理', code: 'device-manager', version: '1.0.0', description: '提供设备CRUD及状态监控功能', manifest: { permissions: ['device:read', 'device:write'], menus: [{ name: '设备管理', path: '/devices', component: 'DeviceList', icon: 'Monitor', sort: 10 }] } },
       { name: 'MQTT 管理', code: 'mqtt', version: '1.0.0', description: '统一管理多个 MQTT 服务器连接、订阅和消息发布', manifest: { permissions: ['mqtt:config:read', 'mqtt:config:write', 'mqtt:subscription:read', 'mqtt:subscription:write', 'mqtt:message:publish', 'mqtt:message:read', 'mqtt:status:read'], menus: [{ name: 'MQTT 管理', path: '/mqtt', component: 'MqttLayout', icon: 'Connection', sort: 20 }] } },
+      { name: 'WebRTC音视频通话', code: 'webrtc-signaling', version: '1.0.0', description: '提供设备音视频通话信令、STUN/TURN配置和通话记录', manifest: { dependencies: [{ code: 'mqtt' }], permissions: ['webrtc:config:read', 'webrtc:config:write', 'webrtc:session:create', 'webrtc:session:read', 'webrtc:session:terminate', 'webrtc:monitor:read'], menus: [{ name: '视频通话', path: '/webrtc-signaling', component: 'WebrtcSignalingLayout', icon: 'VideoCamera', sort: 30, children: [{ name: 'STUN/TURN配置', path: '/webrtc-signaling/config', component: 'WebrtcConfig' }, { name: '通话记录', path: '/webrtc-signaling/sessions', component: 'WebrtcSessions' }, { name: '实时通话监控', path: '/webrtc-signaling/monitor', component: 'WebrtcMonitor' }] }] } },
     ];
     for (const definition of definitions) {
       const exists = await this.apps.findOne({ where: { code: definition.code } });

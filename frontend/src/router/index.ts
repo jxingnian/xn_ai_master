@@ -26,6 +26,13 @@ const router = createRouter({ history: createWebHistory(), routes: [
       { path: 'docs', component: () => import('../apps/feifei-device/FeifeiDeviceDocs.vue') },
       { path: 'mqtt-config', component: () => import('../apps/feifei-device/FeifeiDeviceMqttConfig.vue') },
     ] },
+    { path: 'webrtc-signaling', component: () => import('../apps/webrtc-signaling/WebrtcSignalingLayout.vue'), children: [
+      { path: '', redirect: '/webrtc-signaling/config' },
+      { path: 'config', component: () => import('../apps/webrtc-signaling/WebrtcConfig.vue') },
+      { path: 'sessions', component: () => import('../apps/webrtc-signaling/WebrtcSessions.vue') },
+      { path: 'monitor', component: () => import('../apps/webrtc-signaling/WebrtcMonitor.vue') },
+      { path: 'call/:sessionId', component: () => import('../apps/webrtc-signaling/WebrtcCallWindow.vue'), props: true },
+    ] },
   ] },
 ] });
 

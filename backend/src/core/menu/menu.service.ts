@@ -6,7 +6,8 @@ import { DataSource } from 'typeorm';
 export class MenuService {
   constructor(private readonly dataSource: DataSource) {}
   async getMenus() {
-    const rows = await this.dataSource.query(`SELECT m.id, m.name, m.path, m.component, m.icon, m.sort, a.code AS app_code
+    // 查询父菜单 ID，前端才能将应用的子菜单还原为二级菜单树。
+    const rows = await this.dataSource.query(`SELECT m.id, m.parent_id, m.name, m.path, m.component, m.icon, m.sort, a.code AS app_code
       FROM menus m INNER JOIN installed_apps i ON i.app_id = m.app_id AND i.status = 'enabled'
       INNER JOIN apps a ON a.id = m.app_id ORDER BY m.sort ASC, m.id ASC`);
     const dynamicMenus = this.buildTree(rows);

@@ -58,6 +58,7 @@
           <td>{{ device.isBound ? '已绑定' : '未绑定' }}</td>
           <td>
             <button @click="viewDetail(device)" class="btn-small">详情</button>
+            <button v-if="device.status === 'online'" @click="startVideoCall(device)" class="btn-small">视频通话</button>
             <button v-if="!device.isBound" @click="pairDevice(device)" class="btn-small">连接</button>
             <button v-if="device.isBound" @click="unbindDevice(device)" class="btn-small">解绑</button>
             <button v-if="device.enabled" @click="disableDevice(device)" class="btn-small">停用</button>
@@ -120,7 +121,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { feifeiDeviceApi, Device } from './api';
+import http from '../../api/http';
+
+const router = useRouter();
 
 const devices = ref<Device[]>([]);
 const total = ref(0);
@@ -196,6 +201,16 @@ function nextPage() {
 function viewDetail(device: Device) {
   alert(`查看设备详情: ${device.deviceName}`);
   // TODO: 跳转到详情页面
+}
+
+/** 创建 WebRTC 会话后打开通话窗口；ICE 配置由后端按当前会话返回，前端不保存长期 TURN 密钥。 */
+async function startVideoCall(device: Device) {
+  try {
+    const { data } = await http.post('/webrtc-signaling/sessions', { deviceId: device.deviceId, callType: 'audio_video' });
+    router.push({ path: `/webrtc-signaling/call/${data.sessionId}`, query: { iceServers: JSON.stringify(data.iceServers || []) } });
+  } catch (err: any) {
+    alert(err.response?.data?.message || '创建视频通话失败');
+  }
 }
 
 /** 连接设备（打开配对弹窗） */

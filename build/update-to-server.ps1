@@ -83,7 +83,8 @@ cd "__DOLLAR__STAGE/backend"
 if [ -f package-lock.json ]; then
     npm ci --registry=https://registry.npmmirror.com
 else
-    npm install --registry=https://registry.npmmirror.com
+    npm install --ignore-scripts --registry=https://registry.npmmirror.com
+    npm rebuild bcrypt --build-from-source --offline
 fi
 npm run build
 
@@ -91,7 +92,7 @@ cd "__DOLLAR__STAGE/frontend"
 if [ -f package-lock.json ]; then
     npm ci --registry=https://registry.npmmirror.com
 else
-    npm install --registry=https://registry.npmmirror.com
+    npm install --ignore-scripts --registry=https://registry.npmmirror.com
 fi
 npm run build
 
