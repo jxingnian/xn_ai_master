@@ -184,10 +184,18 @@ export class WebrtcSignalingService implements OnModuleInit, OnModuleDestroy {
   private async processSignal(session: WebrtcSession, direction: 'frontend' | 'device', message: SignalMessageDto): Promise<void> {
     if (!SIGNAL_TYPES.has(message.type)) throw new BadRequestException('不支持的 WebRTC 信令类型');
     if (TERMINAL_STATES.has(session.status)) throw new BadRequestException('会话已经结束');
-    if (message.sequence < session.currentSequence) return;
+    // 记录方向、类型和序列号，确认设备 answer 是否到达后台；不记录 SDP/ICE 内容，避免日志泄露协商数据。
+    this.logger.log(`WebRTC信令接收: session=${session.sessionId}, direction=${direction}, type=${message.type}, sequence=${message.sequence}, currentSequence=${session.currentSequence}, messageId=${message.messageId}`);
     const duplicate = await this.events.findOne({ where: { sessionId: session.sessionId, messageId: message.messageId } });
-    if (duplicate) return;
+    if (duplicate) {
+      // MQTT QoS 1 允许重复投递，重复消息只按 messageId 去重并保留明确日志。
+      this.logger.warn(`WebRTC信令重复消息已忽略: session=${session.sessionId}, direction=${direction}, type=${message.type}, messageId=${message.messageId}`);
+      return;
+    }
     await this.writeEvent(session, direction, message.type, message.sequence, message.payload || {}, message.messageId);
+    // 前端和设备分别从序列号 1 开始编号，不能使用同一个全局序列号判断新旧。
+    // WebRTC ICE 候选还可能因异步处理出现乱序，重复消息由 messageId 去重即可，
+    // 否则设备序列号较小的 SDP answer 会被前端 ICE 序列提前量直接丢弃。
     session.currentSequence = Math.max(session.currentSequence, message.sequence);
     if (message.type === 'call.accept') session.status = 'connecting';
     if (message.type === 'webrtc.offer' || message.type === 'webrtc.answer' || message.type === 'webrtc.ice-candidate' || message.type === 'webrtc.ice-complete') session.status = session.status === 'ringing' ? 'connecting' : session.status;
@@ -198,7 +206,12 @@ export class WebrtcSignalingService implements OnModuleInit, OnModuleDestroy {
     if (message.type === 'webrtc.ice-complete') { session.status = 'connected'; session.connectedAt = session.connectedAt || new Date(); }
     await this.sessions.save(session);
     this.broadcast(session.sessionId, { ...message, direction });
-    if (direction === 'frontend') await this.publishDevice(session, message.type, message.payload || {}, message.messageId, message.sequence);
+    this.logger.log(`WebRTC信令已广播: session=${session.sessionId}, direction=${direction}, type=${message.type}, sequence=${message.sequence}`);
+    if (direction === 'frontend') {
+      await this.publishDevice(session, message.type, message.payload || {}, message.messageId, message.sequence);
+      // 该日志确认浏览器信令已经通过 MQTT 发往设备。
+      this.logger.log(`WebRTC信令已转发设备: session=${session.sessionId}, type=${message.type}, sequence=${message.sequence}`);
+    }
   }
 
   private async publishDevice(session: WebrtcSession, type: string, data: Record<string, unknown>, messageId: string = randomUUID(), sequence = session.currentSequence + 1): Promise<void> {

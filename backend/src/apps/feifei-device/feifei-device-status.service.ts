@@ -61,10 +61,12 @@ export class FeifeiDeviceStatusService {
     // messageId 只保证同一设备内唯一；不同设备允许使用相同的本地序号。
     // 去重查询必须同时限定设备 ID，避免一台设备的消息屏蔽另一台设备的首次上线消息。
     const existingEvent = await this.statusEvents.findOne({ where: { deviceId, messageId } });
-    if (existingEvent) {
-      this.logger.debug(`消息已处理，跳过: ${messageId}`);
-      return { success: false, reason: 'duplicate_message' };
-    }
+    /*
+     * 状态事件去重不能阻断在线状态刷新。设备重启后若消息序号回退，旧代码
+     * 会直接返回，导致 last_seen_at 停留在旧时间，后台随后把在线设备标为离线。
+     * 现在仅跳过重复的历史事件写入，仍按本次 MQTT 接收时间更新设备状态。
+     */
+    const duplicateEvent = existingEvent !== null;
 
     // 查找或创建设备记录
     let device = await this.devices.findOne({ where: { deviceId } });
@@ -115,7 +117,11 @@ export class FeifeiDeviceStatusService {
     await this.devices.save(device);
 
     // 记录状态事件
-    await this.recordStatusEvent(deviceId, messageId, 'online', payload, receivedAt);
+    if (!duplicateEvent) {
+      await this.recordStatusEvent(deviceId, messageId, 'online', payload, receivedAt);
+    } else {
+      this.logger.debug(`重复状态事件不重复写入，但已刷新在线时间: ${messageId}`);
+    }
 
     if (oldStatus !== 'online') {
       this.logger.log(`设备状态变更: ${deviceId} ${oldStatus} -> online`);
