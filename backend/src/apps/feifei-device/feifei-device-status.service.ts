@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { DeviceDevice } from './entities/device-device.entity';
 import { DeviceStatusEvent } from './entities/device-status-event.entity';
+import { DeviceUserBinding } from './entities/device-user-binding.entity';
+import { DevicePairingCode } from './entities/device-pairing-code.entity';
 import { createHash } from 'crypto';
 import { FeifeiDevicePairingService } from './feifei-device-pairing.service';
 import { MqttService } from '../mqtt/mqtt.service';
@@ -29,6 +31,10 @@ export class FeifeiDeviceStatusService {
     private readonly devices: Repository<DeviceDevice>,
     @InjectRepository(DeviceStatusEvent)
     private readonly statusEvents: Repository<DeviceStatusEvent>,
+    @InjectRepository(DeviceUserBinding)
+    private readonly bindings: Repository<DeviceUserBinding>,
+    @InjectRepository(DevicePairingCode)
+    private readonly pairingCodes: Repository<DevicePairingCode>,
     @Inject(forwardRef(() => FeifeiDevicePairingService))
     private readonly pairingService: FeifeiDevicePairingService,
     @Inject(forwardRef(() => MqttService))
@@ -52,8 +58,9 @@ export class FeifeiDeviceStatusService {
     payload: Record<string, unknown>,
     receivedAt: Date,
   ): Promise<{ success: boolean; reason?: string }> {
-    // 检查消息是否已处理（通过 messageId 去重）
-    const existingEvent = await this.statusEvents.findOne({ where: { messageId } });
+    // messageId 只保证同一设备内唯一；不同设备允许使用相同的本地序号。
+    // 去重查询必须同时限定设备 ID，避免一台设备的消息屏蔽另一台设备的首次上线消息。
+    const existingEvent = await this.statusEvents.findOne({ where: { deviceId, messageId } });
     if (existingEvent) {
       this.logger.debug(`消息已处理，跳过: ${messageId}`);
       return { success: false, reason: 'duplicate_message' };
@@ -61,12 +68,6 @@ export class FeifeiDeviceStatusService {
 
     // 查找或创建设备记录
     let device = await this.devices.findOne({ where: { deviceId } });
-
-    // 无论设备是否首次入库，都同步未绑定设备心跳中的配对码，修复后台记录过期后无法重新绑定的问题。
-    const deviceData = payload.data && typeof payload.data === 'object'
-      ? payload.data as Record<string, unknown>
-      : {};
-    const pairingCode = typeof deviceData.pairingCode === 'string' ? deviceData.pairingCode : undefined;
 
     if (!device) {
       // 设备首次上线，创建设备记录，状态为 discovered
@@ -81,10 +82,8 @@ export class FeifeiDeviceStatusService {
       await this.devices.save(device);
       this.logger.log(`设备首次上线，已创建设备记录: ${deviceId}`);
 
-      // 设备心跳已携带本地配对码，直接登记该配对码，避免后台生成另一个设备无法识别的码。
-      await this.generateAndSendPairingCode(deviceId, pairingCode);
-    } else if (pairingCode) {
-      await this.pairingService.syncPairingCodeFromDevice(deviceId, pairingCode);
+      // 设备首次上线后，同步绑定状态到设备
+      await this.syncBindingStatusToDevice(deviceId, true);
     }
 
     // 如果设备已停用，拒绝处理并记录
@@ -120,6 +119,8 @@ export class FeifeiDeviceStatusService {
 
     if (oldStatus !== 'online') {
       this.logger.log(`设备状态变更: ${deviceId} ${oldStatus} -> online`);
+      // 设备从离线变为在线，同步当前实际绑定状态到设备
+      await this.syncBindingStatusToDevice(deviceId, false);
     }
 
     return { success: true };
@@ -249,23 +250,69 @@ export class FeifeiDeviceStatusService {
   }
 
   /**
+   * 检查设备绑定状态并推送给设备。
+   *
+   * @param deviceId 设备ID
+   * @param isNewDevice 是否是新设备
+   */
+  private async syncBindingStatusToDevice(deviceId: string, isNewDevice: boolean): Promise<void> {
+    try {
+      // 查询设备的当前绑定状态
+      const binding = await this.bindings.findOne({
+        where: { deviceId, status: 'active' },
+      });
+
+      if (binding) {
+        // 设备已绑定，推送绑定状态
+        await this.pairingService.notifyDeviceBindingStatus(deviceId, true, binding.userId);
+        this.logger.log(`已推送绑定状态给设备: ${deviceId}, 用户ID: ${binding.userId}`);
+      } else {
+        // 设备未绑定
+        if (isNewDevice) {
+          // 新设备首次上线，生成配对码
+          await this.generateAndSendPairingCode(deviceId);
+        } else {
+          // 老设备重新上线但未绑定，检查是否有有效的配对码
+          const activePairingCode = await this.pairingCodes.findOne({
+            where: { deviceId, status: 'active' },
+          });
+
+          if (!activePairingCode || new Date() > activePairingCode.expiresAt) {
+            // 没有有效配对码，生成新的
+            await this.generateAndSendPairingCode(deviceId);
+          } else {
+            // 有有效配对码，只推送未绑定状态
+            await this.pairingService.notifyDeviceBindingStatus(deviceId, false);
+            this.logger.log(`已推送未绑定状态给设备: ${deviceId}`);
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `同步绑定状态到设备失败: ${deviceId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
    * 生成配对码并通过MQTT下发给设备。
    *
    * @param deviceId 设备ID
    */
-  private async generateAndSendPairingCode(deviceId: string, devicePairingCode?: string): Promise<void> {
+  /** 后台重新生成配对码并通过 MQTT 临时下发给设备展示。 */
+  async generateAndSendPairingCode(deviceId: string, createdBy = 0): Promise<{ expiresAt: Date }> {
     try {
       // 生成配对码（使用系统用户ID 0）
-      const result = await this.pairingService.generatePairingCodeForDevice(deviceId, 0, undefined, devicePairingCode);
+      const result = await this.pairingService.generatePairingCodeForDevice(deviceId, createdBy);
 
       this.logger.log(`已为设备 ${deviceId} 生成配对码，过期时间: ${result.expiresAt.toISOString()}`);
 
-      // 设备提供本地配对码时无需下发；只有旧设备没有配对码时才发送兼容消息。
-      if (!devicePairingCode) {
-        await this.sendPairingCodeToDevice(deviceId, result.pairingCode);
-      }
+      await this.sendPairingCodeToDevice(deviceId, result.pairingCode);
+      return { expiresAt: result.expiresAt };
     } catch (error) {
       this.logger.error(`生成并下发配对码失败: ${deviceId}`, error instanceof Error ? error.stack : String(error));
+      throw error;
     }
   }
 

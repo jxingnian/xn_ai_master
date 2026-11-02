@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { JwtGuard } from '../../core/auth/jwt.guard';
 import { PermissionGuard } from '../../core/permission/permission.guard';
+import { RequirePermission } from '../../common/require-permission.decorator';
 import { FeifeiDeviceService } from './feifei-device.service';
 import { FeifeiDeviceStatusService } from './feifei-device-status.service';
 import { FeifeiDevicePairingService } from './feifei-device-pairing.service';
@@ -37,7 +38,7 @@ import { DeviceStatusEvent } from './entities/device-status-event.entity';
  */
 // main.ts 已统一设置 api 全局前缀，这里只声明业务路径，最终地址为 /api/feifei-devices。
 @Controller('feifei-devices')
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard, PermissionGuard)
 export class FeifeiDeviceController {
   constructor(
     private readonly deviceService: FeifeiDeviceService,
@@ -170,6 +171,16 @@ export class FeifeiDeviceController {
     // JWT 载荷使用 sub 表示当前管理员 ID，不能读取不存在的 userId 字段。
     const userId = req.user?.sub;
     return await this.pairingService.pairDeviceByCode(dto.pairingCode, userId);
+  }
+
+  /** 由后台生成唯一配对码并通过 MQTT 临时发送给设备展示。 */
+  @Post(':id/pairing-codes')
+  @RequirePermission('feifei-device:pair')
+  @HttpCode(HttpStatus.OK)
+  async createPairingCode(@Param('id', ParseIntPipe) id: number, @Request() req: any): Promise<{ success: boolean; expiresAt: Date }> {
+    const device = await this.deviceService.findOne(id);
+    const result = await this.statusService.generateAndSendPairingCode(String(device.deviceId), Number(req.user?.sub));
+    return { success: true, expiresAt: result.expiresAt };
   }
 
   /**

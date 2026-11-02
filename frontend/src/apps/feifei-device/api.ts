@@ -91,15 +91,9 @@ export const feifeiDeviceApi = {
     return data;
   },
 
-  /** 生成配对码（已废弃，仅保留用于兼容） */
-  async createPairingCode(id: number, expiresInSeconds?: number): Promise<{ pairingCode: string; expiresAt: string }> {
+  /** 请求后台生成配对码，并由后台通过 MQTT 临时下发给设备展示 */
+  async createPairingCode(id: number, expiresInSeconds?: number): Promise<{ success: boolean; expiresAt: string }> {
     const { data } = await api.post(`/feifei-devices/${id}/pairing-codes`, { expiresInSeconds });
-    return data;
-  },
-
-  /** 提交配对码绑定设备（已废弃，仅保留用于兼容） */
-  async pairDevice(id: number, pairingCode: string): Promise<{ success: boolean; deviceId: string; boundAt: string }> {
-    const { data } = await api.post(`/feifei-devices/${id}/pair`, { pairingCode });
     return data;
   },
 

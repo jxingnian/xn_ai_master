@@ -213,8 +213,14 @@ async function startVideoCall(device: Device) {
   }
 }
 
-/** 连接设备（打开配对弹窗） */
-function pairDevice(device: Device) {
+/** 连接设备：先请求后台生成配对码，再让用户读取设备临时展示的配对码。 */
+async function pairDevice(device: Device) {
+  try {
+    await feifeiDeviceApi.createPairingCode(device.id);
+  } catch (err: any) {
+    alert(err.response?.data?.message || '后台生成配对码失败');
+    return;
+  }
   pairingDialog.value = {
     visible: true,
     inputCode: '',

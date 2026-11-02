@@ -4,11 +4,11 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, Index } from 
  * 设备状态事件实体。
  *
  * 记录设备每次状态变更的历史，用于状态追溯和统计分析。
- * message_id 建立唯一索引，防止重复消息产生重复状态事件。
+ * 同一设备内的 message_id 建立联合唯一索引，防止重复消息产生重复状态事件。
  */
 @Entity('device_status_events')
 @Index(['deviceId', 'receivedAt'])
-@Index(['messageId'], { unique: true })
+@Index(['deviceId', 'messageId'], { unique: true })
 @Index(['status'])
 export class DeviceStatusEvent {
   @PrimaryGeneratedColumn()
