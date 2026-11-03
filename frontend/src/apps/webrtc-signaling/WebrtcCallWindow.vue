@@ -36,6 +36,7 @@ onMounted(async () => {
     peer = new RTCPeerConnection({ iceServers: iceServers as RTCIceServer[] });
     stream.getTracks().forEach((track) => peer!.addTrack(track, stream!));
     installPeerDiagnostics(peer);
+    // 使用完整 SDP 一次交换 ICE，避免 esp_peer 的远端候选数量上限被逐条候选触发。
     peer.ontrack = (event) => {
       const remoteStream = event.streams[0] || new MediaStream([event.track]);
       if (remoteVideo.value) {
@@ -53,7 +54,10 @@ onMounted(async () => {
       const message = JSON.parse(event.data);
       if (message.type === 'error') { error.value = true; statusText.value = message.message; reportDiagnostic({ event: 'signaling_error', message: message.message }); return; }
       if (message.type === 'call.accept') statusText.value = '设备已接听，正在建立媒体连接';
-      if (message.type === 'webrtc.answer') { await peer!.setRemoteDescription(message.payload); statusText.value = '通话已建立'; }
+      if (message.type === 'webrtc.answer') {
+        await peer!.setRemoteDescription(message.payload);
+        statusText.value = '已收到设备 Answer，等待媒体连接';
+      }
       if (message.type === 'call.accept') await createAndSendOffer();
       if (message.type === 'webrtc.ice-candidate' && message.payload?.candidate) await peer!.addIceCandidate(message.payload.candidate);
     };
@@ -74,7 +78,13 @@ async function createAndSendOffer(): Promise<void> {
   try {
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
-    sendSignal('webrtc.offer', { type: offer.type, sdp: offer.sdp });
+    await waitForIceGatheringComplete(peer);
+    const localDescription = peer.localDescription;
+    if (!localDescription?.sdp) throw new Error('local SDP is empty after ICE gathering');
+    // 完整发送浏览器生成的 SDP。候选数量由浏览器和 ICE 配置决定，不能在
+    // 信令层按固定数量删除，否则会把可用的 host/srflx 候选一起删掉。
+    reportDiagnostic({ event: 'offer_candidates', ...summarizeIceCandidates(localDescription.sdp) });
+    sendSignal('webrtc.offer', { type: localDescription.type, sdp: localDescription.sdp });
   } catch (caught: unknown) {
     offerSent = false;
     const message = caught instanceof Error ? caught.message : String(caught);
@@ -84,8 +94,49 @@ async function createAndSendOffer(): Promise<void> {
   }
 }
 
+/**
+ * 统计完整 SDP 中的 ICE 候选类型，仅用于诊断，不修改 SDP 内容。
+ * 通过该统计可以确认设备实际收到的是 host、srflx 还是 relay 候选。
+ */
+function summarizeIceCandidates(sdp: string): Record<string, number> {
+  const summary = { total: 0, host: 0, srflx: 0, relay: 0, other: 0 };
+  sdp.split(/\r?\n/).forEach((line) => {
+    if (!line.startsWith('a=candidate:')) return;
+    summary.total += 1;
+    const type = line.match(/\btyp\s+(relay|srflx|host)\b/)?.[1];
+    if (type === 'host' || type === 'srflx' || type === 'relay') summary[type] += 1;
+    else summary.other += 1;
+  });
+  return summary;
+}
+
+/** 等待浏览器把所有 ICE candidate 写入 localDescription，避免设备先处理无候选 Offer。 */
+function waitForIceGatheringComplete(connection: RTCPeerConnection): Promise<void> {
+  if (connection.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      connection.removeEventListener('icegatheringstatechange', onStateChange);
+      resolve();
+    }, 8000);
+    const onStateChange = () => {
+      if (connection.iceGatheringState !== 'complete') return;
+      window.clearTimeout(timeout);
+      connection.removeEventListener('icegatheringstatechange', onStateChange);
+      resolve();
+    };
+    connection.addEventListener('icegatheringstatechange', onStateChange);
+  });
+}
+
 function installPeerDiagnostics(connection: RTCPeerConnection): void {
-  connection.onconnectionstatechange = () => reportDiagnostic({ event: 'connection_state', state: connection.connectionState });
+  connection.onconnectionstatechange = () => {
+    reportDiagnostic({ event: 'connection_state', state: connection.connectionState });
+    if (connection.connectionState === 'connected') statusText.value = '通话已建立';
+    if (connection.connectionState === 'failed' || connection.connectionState === 'disconnected') {
+      error.value = true;
+      statusText.value = `媒体连接${connection.connectionState === 'failed' ? '失败' : '已断开'}`;
+    }
+  };
   connection.oniceconnectionstatechange = () => reportDiagnostic({ event: 'ice_connection_state', state: connection.iceConnectionState });
   connection.onicegatheringstatechange = () => reportDiagnostic({ event: 'ice_gathering_state', state: connection.iceGatheringState });
   connection.onsignalingstatechange = () => reportDiagnostic({ event: 'signaling_state', state: connection.signalingState });
